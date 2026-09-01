@@ -3,8 +3,12 @@
 Subcommands:
     base install    — install global runtime to ~/.llm-wiki-base/ (1 lần per máy)
     base path       — print current base dir
-    init personal   — init personal knowledge wiki in-place (data only)
-    init project    — init project wiki + install MCP globally + link skills
+    init            — interactive init wizard (personal hoặc project)
+    init personal   — init personal knowledge wiki in-place (data only + MCP + registry)
+    init project    — init project wiki + install centralized MCP globally + register
+    wiki list       — list all registered wikis (TOML registry)
+    wiki add        — register a wiki manually
+    wiki remove     — unregister a wiki
     ingest          — wrapper: gọi global tools/ingest.py với cwd context
     reindex         — wrapper: rebuild search DB + RAG
     lint            — wrapper: health check
@@ -18,19 +22,23 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.prompt import Confirm, Prompt
 
 from llm_wiki import __version__
 from llm_wiki.base import get_base_dir, get_base_python, install_base
 
 app = typer.Typer(
     name="llm-wiki",
-    help="LLM-maintained wiki với hybrid BM25+vector search, MCP bridge, multi-base init.",
+    help="LLM-maintained wiki với hybrid BM25+vector search, centralized MCP bridge, multi-base init.",
     no_args_is_help=True,
     add_completion=False,
 )
 
 init_app = typer.Typer(help="Init mới 1 wiki (personal hoặc project)")
 app.add_typer(init_app, name="init")
+
+wiki_app = typer.Typer(help="Quản lý wikis trong centralized MCP registry")
+app.add_typer(wiki_app, name="wiki")
 
 base_app = typer.Typer(help="Manage global llm-wiki-base runtime (~/.llm-wiki-base/)")
 app.add_typer(base_app, name="base")
@@ -47,16 +55,105 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
-@app.callback()
-def main(
-    version: bool = typer.Option(
-        False, "--version", "-V",
-        callback=_version_callback,
-        is_eager=True,
-        help="Print version và exit.",
-    ),
-) -> None:
-    """llm-wiki CLI — root callback (chỉ để register --version)."""
+# ─────────────────────────────────────────────────────────────────────────────
+# Init (interactive wizard + subcommands)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@init_app.callback(invoke_without_command=True)
+def init_interactive(ctx: typer.Context) -> None:
+    """Interactive wizard: `llm-wiki init` walks through options.
+
+    Nếu truyền subcommand (personal/project), bỏ qua wizard.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+
+    console.print("[bold cyan]llm-wiki init wizard[/bold cyan]")
+    console.print("Tạo wiki mới (personal knowledge hoặc project wiki).\n")
+
+    # 1. Wiki type
+    wtype = Prompt.ask(
+        "Loại wiki",
+        choices=["personal", "project"],
+        default="personal",
+    )
+
+    if wtype == "personal":
+        _init_interactive_personal()
+    else:
+        _init_interactive_project()
+
+
+def _init_interactive_personal() -> None:
+    from llm_wiki.init_personal import run as run_personal
+    from llm_wiki.config import supported_clients
+
+    cwd = Path.cwd()
+    default_name = cwd.name
+
+    name = Prompt.ask("Tên wiki", default=default_name)
+
+    client_str = Prompt.ask(
+        "AI client để cài MCP (cách nhau bằng dấu phẩy)",
+        default="claude",
+    )
+    clients = [c.strip() for c in client_str.split(",") if c.strip()]
+
+    for c in clients:
+        if c not in supported_clients():
+            console.print(f"[red]Error:[/red] unsupported client '{c}'. Supported: {supported_clients()}")
+            raise typer.Exit(1)
+
+    do_mcp = Confirm.ask("Cài centralized MCP config không?", default=True)
+    do_skills = Confirm.ask("Copy skills vào .agents/skills/ không?", default=True)
+
+    console.print()
+    run_personal(
+        cwd=cwd,
+        name=name,
+        force=False,
+        skills_target="universal" if do_skills else "skip",
+        clients=clients,
+        skip_mcp=not do_mcp,
+    )
+
+
+def _init_interactive_project() -> None:
+    from llm_wiki.init_project import run as run_project
+    from llm_wiki.config import supported_clients
+
+    root = Path.cwd()
+    default_subdir = "project-wiki"
+
+    root_str = Prompt.ask("Project root", default=str(root))
+    root = Path(root_str).resolve()
+
+    wiki_dir = Prompt.ask("Wiki subdir (under project root)", default=default_subdir)
+
+    client_str = Prompt.ask(
+        "AI client để cài MCP (cách nhau bằng dấu phẩy)",
+        default="claude",
+    )
+    clients = [c.strip() for c in client_str.split(",") if c.strip()]
+
+    for c in clients:
+        if c not in supported_clients():
+            console.print(f"[red]Error:[/red] unsupported client '{c}'. Supported: {supported_clients()}")
+            raise typer.Exit(1)
+
+    do_mcp = Confirm.ask("Cài centralized MCP config không?", default=True)
+    do_skills = Confirm.ask("Copy skills vào .agents/skills/ không?", default=True)
+
+    console.print()
+    run_project(
+        root=root,
+        wiki_subdir=wiki_dir,
+        clients=clients,
+        force=False,
+        skills_target="universal" if do_skills else "skip",
+        skip_mcp=not do_mcp,
+    )
 
 
 @init_app.command("personal")
@@ -64,17 +161,22 @@ def init_personal(
     here: bool = typer.Option(True, "--here", help="Init tại cwd (in-place)."),
     name: str | None = typer.Option(None, "--name", "-n", help="Wiki name (default: tên folder)."),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirm nếu dir có content."),
+    client: list[str] = typer.Option(
+        ["claude"], "--client", "-c",
+        help="AI client để cài centralized MCP. Có thể truyền nhiều lần: -c claude -c opencode.",
+    ),
+    no_mcp: bool = typer.Option(False, "--no-mcp", help="Skip centralized MCP config install."),
     skills_target: str = typer.Option(
         "universal", "--skills-target",
-        help="Skill install location: 'universal' (<wiki>/.agents/skills/), 'claude' (chỉ .claude/skills/ + symlink), 'both' (copy cả 2).",
+        help="Skill install location: 'universal' (<wiki>/.agents/skills/), 'claude' (.claude/skills/ + symlink), 'both' (copy cả 2).",
     ),
     no_skills: bool = typer.Option(False, "--no-skills", help="Skip skill install."),
 ) -> None:
-    """Init 1 personal knowledge wiki tại cwd. In-place."""
+    """Init 1 personal knowledge wiki tại cwd. In-place. Cài MCP + registry mặc định."""
     from llm_wiki.init_personal import run
     cwd = Path.cwd()
     target = "skip" if no_skills else skills_target
-    run(cwd=cwd, name=name, force=force, skills_target=target)
+    run(cwd=cwd, name=name, force=force, skills_target=target, clients=client, skip_mcp=no_mcp)
 
 
 @init_app.command("project")
@@ -86,20 +188,21 @@ def init_project(
     ),
     client: list[str] = typer.Option(
         ["claude"], "--client", "-c",
-        help="AI client để install MCP. Có thể truyền nhiều lần: -c claude -c opencode.",
+        help="AI client để cài centralized MCP. Có thể truyền nhiều lần: -c claude -c opencode.",
     ),
     server_name: str = typer.Option(
-        "llm-wiki-mcp", "--server-name", "-s",
-        help="Tên MCP server (đổi nếu conflict với project khác trên cùng máy).",
+        "llm-wiki-base-mcp", "--server-name", "-s",
+        help="Tên centralized MCP server (shared across all wikis trên máy).",
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirm nếu wiki subdir có content."),
     skills_target: str = typer.Option(
         "universal", "--skills-target",
-        help="Skill install location: 'universal' (<wiki>/.agents/skills/), 'claude' (chỉ .claude/skills/ + symlink), 'both' (copy cả 2).",
+        help="Skill install location: 'universal' (<wiki>/.agents/skills/), 'claude', 'both'.",
     ),
     no_skills: bool = typer.Option(False, "--no-skills", help="Skip skill install."),
+    no_mcp: bool = typer.Option(False, "--no-mcp", help="Skip centralized MCP config install."),
 ) -> None:
-    """Init project wiki: tạo <root>/<wiki-dir>/ + cài MCP globally + copy skills per-wiki."""
+    """Init project wiki: tạo <root>/<wiki-dir>/ + register vào TOML + centralized MCP + skills."""
     from llm_wiki.init_project import run
     target = "skip" if no_skills else skills_target
     run(
@@ -109,7 +212,66 @@ def init_project(
         server_name=server_name,
         force=force,
         skills_target=target,
+        skip_mcp=no_mcp,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wiki management (registry)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@wiki_app.command("list")
+def wiki_list_cmd() -> None:
+    """Liệt kê tất cả wikis trong centralized MCP registry."""
+    from llm_wiki.registry import list_wikis
+    wikis = list_wikis()
+    if not wikis:
+        console.print("[dim]Registry rỗng. Chạy `llm-wiki init` để tạo wiki đầu tiên.[/dim]")
+        return
+    console.print(f"[bold]{len(wikis)} wiki(s) trong registry:[/bold]\n")
+    for w in wikis:
+        tag = "project" if w.get("type") == "project" else "personal"
+        console.print(f"  [cyan]{w['name']}[/cyan] ([dim]{tag}[/dim])")
+        console.print(f"    path: {w['path']}")
+        if w.get("added"):
+            console.print(f"    added: {w['added']}")
+    console.print()
+    console.print("AI tool dùng param `wiki=<name>` để target wiki cụ thể.")
+    console.print("Để trống `wiki=` để search cross-wiki (bao gồm personal wiki).")
+
+
+@wiki_app.command("add")
+def wiki_add_cmd(
+    name: str = typer.Argument(..., help="Wiki name (dùng làm identifier trong MCP)."),
+    path: str = typer.Argument(..., help="Đường dẫn tuyệt đối tới wiki root."),
+    type: str = typer.Option("personal", "--type", "-t", help="personal hoặc project."),
+) -> None:
+    """Đăng ký 1 wiki đã tồn tại vào centralized MCP registry."""
+    from llm_wiki.registry import add_wiki, get_wiki
+    wiki_path = Path(path).resolve()
+    if not wiki_path.exists():
+        console.print(f"[red]Error:[/red] path không tồn tại: {wiki_path}")
+        raise typer.Exit(1)
+    add_wiki(name, str(wiki_path), wiki_type=type)
+    console.print(f"[green]✓[/green] registered: '{name}' (type={type}) → {wiki_path}")
+
+
+@wiki_app.command("remove")
+def wiki_remove_cmd(
+    name: str = typer.Argument(..., help="Wiki name để xóa khỏi registry."),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirm."),
+) -> None:
+    """Xóa 1 wiki khỏi registry (không xóa files)."""
+    from llm_wiki.registry import remove_wiki, get_wiki
+    if not get_wiki(name):
+        console.print(f"[red]Error:[/red] wiki '{name}' không có trong registry.")
+        raise typer.Exit(1)
+    if not force:
+        if not Confirm.ask(f"Xóa '{name}' khỏi registry? (files không bị xóa)"):
+            raise typer.Exit(0)
+    if remove_wiki(name):
+        console.print(f"[green]✓[/green] removed '{name}' from registry.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -121,20 +283,20 @@ def init_project(
 def base_install(
     dir: Path = typer.Option(
         None, "--dir", "-d",
-        help="Target dir (default: ~/.llm-wiki-base). Có thể override qua env LLM_WIKI_BASE_DIR.",
+        help="Target dir (default: ~/.llm-wiki-base). Override qua env LLM_WIKI_BASE_DIR.",
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Recreate venv + reinstall requirements."),
 ) -> None:
     """Install global llm-wiki-base runtime (tools/, rag/, scripts/, .venv/).
 
     Chạy 1 lần sau khi `pip install llm-wiki`. Idempotent — chạy lại để sync
-    tools/rag/scripts mới nhất từ package.
+    tools/rag/scripts mới nhất từ package, bao gồm centralized MCP server.
     """
     base = install_base(base_dir=dir, force=force)
     console.print(f"[green]✓[/green] llm-wiki-base installed at: {base}")
     console.print(f"  python: {get_base_python()}")
     console.print()
-    console.print("Next: cd vào 1 folder trống rồi `llm-wiki init personal` để tạo wiki data.")
+    console.print("Next: cd vào 1 folder trống rồi `llm-wiki init` để tạo wiki data + MCP.")
 
 
 @base_app.command("path")
@@ -196,6 +358,11 @@ def watch_cmd(
 ) -> None:
     """Daemon: scan raw/inbox/ → ingest → reindex → lint. Chạy từ trong wiki dir."""
     _run_base_tool("watch.py", [], root)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Translation
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 @translate_app.command("enable")

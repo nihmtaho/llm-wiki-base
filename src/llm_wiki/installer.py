@@ -7,12 +7,50 @@ import json
 import shutil
 from pathlib import Path
 
+from llm_wiki.base import get_base_dir, get_base_python
 from llm_wiki.config import (
     CLIENT_PATHS,
     MCP_KEYS,
     get_mcp_config_path,
     get_skills_dir,
 )
+
+CENTRALIZED_SERVER_NAME = "llm-wiki-base-mcp"
+CENTRALIZED_SERVER_SCRIPT = "mcp_base_server.py"
+
+
+def centralized_server_cmd() -> list[str]:
+    """Build server command cho centralized MCP server (mcp_base_server.py in tools/)."""
+    py_bin = get_base_python()
+    base_dir = get_base_dir()
+    script = base_dir / "tools" / CENTRALIZED_SERVER_SCRIPT
+    return [str(py_bin), str(script)]
+
+
+def centralized_server_env(base_dir: Path | None = None) -> dict:
+    """Build env dict cho centralized MCP server."""
+    bdir = base_dir or get_base_dir()
+    return {
+        "LLM_WIKI_BASE_DIR": str(bdir),
+        "WIKI_EMBED_MODEL": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "WIKI_BM25_WEIGHT": "0.5",
+        "WIKI_VEC_WEIGHT": "0.5",
+    }
+
+
+def install_centralized_mcp(
+    client: str,
+    server_name: str = CENTRALIZED_SERVER_NAME,
+) -> Path:
+    """Cài centralized MCP server entry cho 1 client (idempotent).
+
+    Server này đọc registry.toml để biết các wiki có sẵn — không cần cài lại
+    cho mỗi wiki. Ghi đè entry nếu đã tồn tại (overwrite bởi server_name).
+    """
+    base_dir = get_base_dir()
+    cmd = centralized_server_cmd()
+    env = centralized_server_env(base_dir)
+    return install_mcp_config(client, server_name, cmd, env, cwd=str(base_dir))
 
 
 def _build_mcp_entry(client: str, command: list[str], env: dict, cwd: str) -> dict:

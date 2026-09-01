@@ -11,7 +11,8 @@ Schema: xem `_schema.md`. Runbook: `CLAUDE.md`.
 Có source mới trong `raw/inbox/` — do human thả, `scripts/extract_*.py` tạo, HOẶC **AI khác nạp qua MCP `wiki_submit`** (dự án / task / tài liệu). Con người bảo "ingest cái này".
 
 ## Quy trình
-1. Đọc source: `read_raw_source(name, "inbox")` hoặc `wiki_read("raw/inbox/<name>")`.
+1. Đọc source: `read_raw_source(name, "inbox", wiki="")` hoặc `wiki_read("raw/inbox/<name>", wiki="")`.
+   - Để `wiki=""` để tìm trong all wikis. Nếu biết wiki nguồn, chỉ định `wiki=<name>`.
    - Nếu nội dung mơ hồ / không đủ context để chốt takeaway → `websearch` thêm từ URL/cite trong field `source` của raw (hoặc từ khoá chính trong nội dung) trước khi hỏi human. Không đoán mù.
 2. Thảo luận takeaway ngắn với human.
 3. **Auto-detect domain** (top-level folder dưới `wiki/`):
@@ -58,9 +59,10 @@ Có source mới trong `raw/inbox/` — do human thả, `scripts/extract_*.py` t
     Hoặc tìm page qua MCP `wiki_search`.
 
 ## MCP tools (cầu nối cho AI khác)
-- Intake: `wiki_submit(title, content, domain, source)` → ghi vào `raw/inbox/` (AI khác KHÔNG được viết thẳng wiki). `domain` optional, để rỗng = maintainer tự detect ở bước 3.
-- Đọc: `read_raw_source` · `wiki_read` · `wiki_list(domain=<name>, kind=concept)`.
-- Đề xuất (staging): `wiki_propose_edit` (nếu human muốn review trước).
+- Intake: `wiki_submit(title, content, wiki, domain, source)` → ghi vào `raw/inbox/` của wiki `wiki` (bắt buộc chỉ định). AI khác KHÔNG được viết thẳng wiki. `domain` optional, để rỗng = maintainer tự detect ở bước 3.
+- Đọc: `read_raw_source` · `wiki_read(path, wiki="")` · `wiki_list(domain=<name>, kind=concept, wiki="")`.
+  - `wiki=""` → cross-wiki search. `wiki="<name>"` → target cụ thể.
+- Đề xuất (staging): `wiki_propose_edit(path, content, wiki)` (nếu human muốn review trước).
 - Index/ingest là việc của maintainer (CLI), KHÔNG qua MCP write.
 
 ## An toàn

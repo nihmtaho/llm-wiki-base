@@ -10,8 +10,13 @@ DB_PATH = os.environ.get("WIKI_DB", str(WIKI_DB_FILE))
 WIKI_ROOT = str(WIKI_ROOT)  # keep as str for legacy callers (db.WIKI_ROOT)
 
 
-def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+def get_conn(db_path: str | None = None) -> sqlite3.Connection:
+    """Mở SQLite connection. Nếu db_path=None dùng module default (DB_PATH từ env).
+
+    Centralized MCP server truyền db_path tường mỗi wiki để hỗ trợ multi-wiki.
+    """
+    path = db_path or DB_PATH
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn
 

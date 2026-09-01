@@ -66,13 +66,16 @@ def _check_body_inline_local_refs(path: str, txt: str) -> list[str]:
     return msgs
 
 
-def lint(conn) -> dict:
+def lint(conn, wiki_root: str | None = None) -> dict:
     """Health-check: orphan pages, broken [[wikilinks]], missing files.
 
     Critical issues (missing_file) indicate DB rows trỏ file không tồn tại —
     search trả row này nhưng file gone → broken result cho user.
+
+    `wiki_root` override cho centralized MCP server (multi-wiki). Nếu None,
+    dùng db.WIKI_ROOT module default.
     """
-    WIKI_ROOT = db.WIKI_ROOT
+    WIKI_ROOT = wiki_root or db.WIKI_ROOT
     pages = db.list_pages(conn)
     linked = set()
     orphan = []
@@ -116,9 +119,12 @@ def lint(conn) -> dict:
     }
 
 
-def fix_missing_files(conn) -> list[str]:
-    """Xóa rows trong `pages` có path không tồn tại trên disk. Trả list path đã xóa."""
-    WIKI_ROOT = db.WIKI_ROOT
+def fix_missing_files(conn, wiki_root: str | None = None) -> list[str]:
+    """Xóa rows trong `pages` có path không tồn tại trên disk. Trả list path đã xóa.
+
+    `wiki_root` override cho centralized MCP server (multi-wiki).
+    """
+    WIKI_ROOT = wiki_root or db.WIKI_ROOT
     pages = db.list_pages(conn)
     deleted = []
     for p in pages:

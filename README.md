@@ -21,11 +21,12 @@ Local-first. Python + SQLite (FTS5 BM25) + vector (fastembed on-device).
 |---|---|---|
 | **Dùng cho** | Knowledge wiki cá nhân | Wiki cho project codebase |
 | **Init location** | In-place (cwd) | `<root>/<wiki-dir>/` subfolder |
-| **MCP** | Optional (manual) | Auto-install globally |
-| **Skills** | `llm-wiki-{ingest,query,lint,translate}` | `wiki-project-{research,plan,ingest,lint}` |
+| **MCP** | Auto-install (centralized) | Auto-install (centralized) |
+| **Skills** | `llm-wiki-{ingest,query,lint,translate}` | `wiki-project-{research,plan,ingest,lint,mcp}` |
 | **Skill location** | `<wiki>/.agents/skills/` (per-wiki) | `<wiki>/.agents/skills/` (per-wiki) |
 
-2 base không xung đột — skill prefix khác nhau, MCP server name khác nhau. Chạy cả 2 trên cùng máy.
+2 base không xung đột — skill prefix khác nhau. MCP là centralized (`llm-wiki-base-mcp`),
+1 server entry trên máy, đọc `registry.toml` để biết các wiki.
 
 ---
 
@@ -97,10 +98,11 @@ New-Item -ItemType SymbolicLink -Path "C:\Windows\llm-wiki.exe" -Target "$PWD\.v
 
 ```
 ~/.llm-wiki-base/                    # Global runtime (1 lần install)
-├── tools/                           #   ingest.py, lint.py, watch.py, mcp_server.py, db.py, ...
+├── tools/                           #   ingest.py, lint.py, watch.py, mcp_base_server.py, db.py, ...
 ├── rag/                             #   embeddings.py, index.py, search.py
 ├── scripts/                         #   extract_url.py, extract_pdf.py, extract_youtube.py
 ├── .venv/                           #   1 Python venv cho mọi wikis
+├── registry.toml                    #   centralized MCP: wiki name → path/type
 └── requirements.txt
 
 my-wiki/                             # Per-wiki data (1 folder = 1 wiki)
@@ -136,19 +138,35 @@ llm-wiki base path                 # print current base dir
 ### Init
 
 ```bash
-# Personal wiki (data only, skills auto-copy)
+# Interactive wizard (chọn personal/project + options)
+llm-wiki init                                     # guided flow
+
+# Personal wiki (data + MCP + skills, in-place)
 llm-wiki init personal
 llm-wiki init personal --name "My Knowledge"
+llm-wiki init personal --client claude --client opencode  # MCP clients
+llm-wiki init personal --no-mcp                  # skip centralized MCP
 llm-wiki init personal --skills-target claude    # .claude/skills/ + symlink
 llm-wiki init personal --skills-target both      # copy cả 2
 llm-wiki init personal --no-skills               # skip skill install
 
-# Project wiki (data + MCP globally + skills)
+# Project wiki (data + centralized MCP + registry + skills)
 llm-wiki init project --client claude --client opencode
-llm-wiki init project --wiki-dir .               # data ở cwd
-llm-wiki init project --server-name my-wiki-mcp  # custom MCP name
+llm-wiki init project --wiki-dir project-wiki    # subfolder name
+llm-wiki init project --no-mcp                   # skip centralized MCP
+llm-wiki init project --server-name my-wiki-mcp  # custom centralized server name
 llm-wiki init project --skills-target universal   # default
 ```
+
+### Wiki management (centralized MCP registry)
+
+```bash
+llm-wiki wiki list                           # list all registered wikis
+llm-wiki wiki add my-wiki /path/to/wiki --type personal  # register existing wiki
+llm-wiki wiki remove my-wiki                 # unregister (files không bị xóa)
+```
+
+Trong centralized MCP, dùng param `wiki=<name>` để target wiki, để trống để cross-wiki search.
 
 ### Per-wiki operations (cwd = wiki dir)
 

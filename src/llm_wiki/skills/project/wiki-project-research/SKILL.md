@@ -22,14 +22,20 @@ Mọi project codebase có 1 project wiki song song tại `<project>/project-wik
 4. **Cross-check với code** qua `codegraph` (nếu có) — verify wiki vẫn còn đúng (không stale).
 5. **Update wiki** nếu phát hiện thiếu hoặc sai (qua `wiki_propose_edit`).
 
-## MCP tools (project-wiki only)
+## MCP tools (centralized — dùng `wiki` param để target project wiki)
 
-- `wiki_search(query, top_k=8)` — hybrid search trong `<project>/project-wiki/wiki/`.
-- `wiki_read(path)` — đọc page (path relative to project-wiki root, vd `wiki/architecture/auth-flow.md`).
-- `wiki_list(domain, kind)` — list pages, filter theo domain hoặc kind.
-- `semantic_search(query)` — chunk-level vector search (cần `rag/index.py` đã build).
-- `wiki_submit(title, content, domain, source)` — nạp raw source mới vào `raw/inbox/`.
-- `wiki_propose_edit(path, content)` — đề xuất sửa wiki page (staging, chờ human sign-off).
+Centralized MCP server (`llm-wiki-base-mcp`) phục vụ toàn bộ wikis trên máy.
+Để target project wiki cụ thể, dùng param `wiki=<project-wiki-name>`:
+
+- `wiki_search(query, top_k=8, wiki="project-wiki")` — hybrid search trong project wiki. Để `wiki=""` để search all wikis (cross-scope).
+- `wiki_read(path, wiki="project-wiki")` — đọc page (path relative to wiki root, vd `wiki/architecture/auth-flow.md`).
+- `wiki_list(domain, kind, wiki="project-wiki")` — list pages, filter theo domain/kind.
+- `semantic_search(query, wiki="project-wiki")` — chunk-level vector search (cần `rag/index.py` build).
+- `wiki_submit(title, content, wiki="project-wiki", domain, source)` — nạp raw source mới vào `raw/inbox/`. **Bắt buộc chỉ định `wiki`**.
+- `wiki_propose_edit(path, content, wiki="project-wiki")` — đề xuất sửa wiki page (staging). **Bắt buộc chỉ định `wiki`**.
+
+> Tên project wiki = tên subfolder (mặc định `project-wiki`). Chạy `llm-wiki wiki list` để xem tên.
+> Để `wiki=""` để **cross-wiki search** (bao gồm cả personal wiki) — hữ useful khi cần kiến thức cá nhân.
 
 ## Plan mode
 
@@ -54,12 +60,17 @@ KHÔNG nhảy thẳng vào `grep` khi wiki chưa được check. Wiki mất côn
 ## Nạp context mới
 
 Nếu wiki thiếu thông tin, KHÔNG tự ý ghi trực tiếp. Dùng:
-- `wiki_submit(title, content, domain, source)` — nạp raw source vào `raw/inbox/`. Maintainer (LLM agent khác hoặc user) sẽ ingest sau.
-- `wiki_propose_edit(path, content)` — đề xuất sửa, staging vào `wiki/.proposals/`, chờ human sign-off.
+- `wiki_submit(title, content, wiki="project-wiki", domain, source)` — nạp raw source vào `raw/inbox/`. **Bắt buộc chỉ định `wiki`**. Maintainer (LLM agent khác hoặc user) sẽ ingest sau.
+- `wiki_propose_edit(path, content, wiki="project-wiki")` — đề xuất sửa, staging vào `wiki/.proposals/`, chờ human sign-off. **Bắt buộc chỉ định `wiki`**.
 
 ## An toàn
 
-- **Project wiki ≠ personal wiki.** Skill này chỉ hoạt động khi MCP server trỏ tới `<project>/project-wiki/`. Đừng nhầm với personal wiki (skill `llm-wiki-{ingest,query,lint}`).
-- **Wiki có thể stale.** Luôn cross-check critical claim với code qua `codegraph` hoặc grep trước khi hành động.
+- **Centralized MCP, shared server.** Server `llm-wiki-base-mcp` phục vụ toàn bộ wikis trên máy.
+  Luôn dùng param `wiki=<name>` để target project wiki — đừng để `wiki=""` khi mục đích
+  chỉ ở project wiki (cross-wiki search trả kết quả từ nhiều wiki, cần phân biệt).
+  Dùng `llm-wiki wiki list` để kiểm tra tên wiki đã đăng ký.
+- **Project wiki ≠ personal wiki.** Nhưng với centralized MCP, AI có thể cross-wiki search
+  (personal wiki bao gồm) khi để `wiki=""` — hữ useful, nhưng phải biết phân biệt nguồn.
+- **Wiki có thể stale.** Luôn cross-check critical claim với code qua `codegraph` hoặc grep.
 - **Contradiction giữa wiki pages → báo human**, không tự resolve.
-- **Multi-project trên cùng máy**: nếu có nhiều project-wiki, check `WIKI_ROOT` env của MCP server session hiện tại trước khi `wiki_read` (path khác nhau).
+- **MCP không ingest.** Chỉ search/read/propose. Ingest là maintainer-only.

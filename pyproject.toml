@@ -17,6 +17,7 @@ dependencies = [
     "trafilatura",
     "pymupdf",
     "platformdirs>=4",
+    "tomli>=2; python_version < '3.11'",
 ]
 
 [project.scripts]

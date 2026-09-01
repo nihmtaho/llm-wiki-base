@@ -25,12 +25,16 @@ mkdir my-wiki && cd my-wiki
 llm-wiki init personal
 ```
 
-Lệnh này tạo data-only trong cwd:
+Lệnh này tạo data-only trong cwd + cài MCP mặc định:
 - `raw/inbox/`, `raw/`, `wiki/.proposals/`, `rag/.rag_index/`
 - `wiki/index.md`, `wiki/log.md` (skeleton)
 - `_schema.md`, `AGENTS.md`, `CLAUDE.md` (agent configs)
 - `.gitignore`, `.env` (point to global base)
 - `.agents/skills/` (per-wiki skills)
+- Đăng ký wiki vào `~/.llm-wiki-base/registry.toml`
+- Cài centralized MCP config (`llm-wiki-base-mcp`) cho client chỉ định (default: claude)
+
+Dùng `--no-mcp` để bỏ qua MCP cài đặt.
 
 ### Project wiki (subdir trong project)
 
@@ -41,8 +45,12 @@ llm-wiki init project --root . --wiki-dir project-wiki --client claude
 
 Lệnh này:
 - Tạo `<root>/<wiki-dir>/` với data + agent configs
-- Cài MCP config globally vào `~/.claude/mcp_servers.json` (hoặc client khác)
+- Đăng ký wiki vào `~/.llm-wiki-base/registry.toml`
+- Cài **centralized** MCP config (`llm-wiki-base-mcp`) — 1 server entry cho toàn máy,
+  server đọc registry để tìm wikis. Cài ở `~/.claude/mcp_servers.json` (hoặc client khác)
 - Copy project skills vào `<wiki-dir>/.agents/skills/`
+
+Mỗi wiki mới chỉ cần đăng ký vào registry — MCP config không cần cài lại (idempotent).
 
 ## 3. (Optional) override env
 
@@ -100,11 +108,26 @@ Daemon này poll `raw/inbox/` mỗi `WATCH_INGEST_SEC` (default 15s), ingest fil
 .venv/bin/python tools/reindex.py
 ```
 
-## 6. Connect AI tool (MCP)
+## 6. Connect AI tool (centralized MCP)
 
-Sau `init project`, MCP config đã được cài globally. Reload client (Claude Code / OpenCode / Zed) để pick up server.
+Sau `init`, MCP config (`llm-wiki-base-mcp`) đã được cài globally — cài **một lần**
+duy nhất trên máy (idempotent). Server đọc `~/.llm-wiki-base/registry.toml` để biết
+tất cả wikis.
 
-Server name mặc định `llm-wiki-mcp` — nếu nhiều wiki trên cùng máy, đổi qua `--server-name`.
+Reload client (Claude Code / OpenCode / Zed) để pick up server.
+
+**Targeting wiki trong MCP tools:**
+- `wiki_search(query)` → cross-wiki search (tất cả wikis, bao gồm cả personal wiki)
+- `wiki_search(query, wiki="my-project")` → search trong 1 wiki cụ thể
+- `wiki_submit(..., wiki="my-project")` → nạp vào inbox của wiki cụ thích
+- `wiki_read(path)` → tự động tìm path trong all wikis; `wiki_read(path, wiki="...")` để chỉ định
+
+**Quản lý registry:**
+```bash
+llm-wiki wiki list           # list all registered wikis
+llm-wiki wiki add <name> <path> --type project  # register wiki đã có sẵn
+llm-wiki wiki remove <name>  # xóa khỏi registry (files không bị xóa)
+```
 
 ## 7. Verify
 

@@ -1,0 +1,11 @@
+# Dependencies for global llm-wiki-base runtime (tools/, rag/, scripts/).
+# Cài vào ~/.llm-wiki-base/.venv/ bởi `llm-wiki base install`.
+# CLI deps (typer, rich) nằm ở pyproject.toml — được cài qua `pip install -e .`
+# (main venv, không phải base venv).
+mcp>=1.9,<2
+fastembed>=0.5
+numpy
+trafilatura>=1.12
+PyMuPDF>=1.24
+youtube-transcript-api>=0.6
+tomli>=2; python_version < '3.11'

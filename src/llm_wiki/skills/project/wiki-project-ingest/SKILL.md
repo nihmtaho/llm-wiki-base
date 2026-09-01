@@ -15,7 +15,7 @@ Có source mới trong `<project>/project-wiki/raw/inbox/` — do human thả, `
 
 ## Quy trình
 
-1. Đọc source: `read_raw_source(name, "inbox")` hoặc `wiki_read("raw/inbox/<name>")`.
+1. Đọc source: `read_raw_source(name, "inbox", wiki="project-wiki")` hoặc `wiki_read("raw/inbox/<name>", wiki="project-wiki")`.
    - Nếu nội dung mơ hồ / không đủ context → `websearch` thêm từ URL/cite trong frontmatter `source` trước khi hỏi human.
 2. Thảo luận takeaway ngắn với human.
 3. **Auto-detect domain** (top-level folder dưới `<project>/project-wiki/wiki/`):
@@ -56,9 +56,9 @@ Có source mới trong `<project>/project-wiki/raw/inbox/` — do human thả, `
 
 ## MCP tools (project-wiki)
 
-- Intake: `wiki_submit(title, content, domain, source)` → ghi vào `<project>/project-wiki/raw/inbox/`. `domain` optional.
-- Đọc: `read_raw_source` · `wiki_read` · `wiki_list(domain=<name>, kind=concept)`.
-- Đề xuất: `wiki_propose_edit(path, content)` — staging vào `wiki/.proposals/`.
+- Intake: `wiki_submit(title, content, wiki="project-wiki", domain, source)` → ghi vào `raw/inbox/` của project wiki. **Bắt buộc chỉ định `wiki`**. `domain` optional.
+- Đọc: `read_raw_source(name, subdir, wiki="project-wiki")` · `wiki_read(path, wiki="project-wiki")` · `wiki_list(domain=<name>, kind=concept, wiki="project-wiki")`.
+- Đề xuất: `wiki_propose_edit(path, content, wiki="project-wiki")` — staging vào `wiki/.proposals/`. **Bắt buộc chỉ định `wiki`**.
 - Index/ingest là CLI (`tools/reindex.py` + `tools/ingest.py`), KHÔNG qua MCP write.
 
 ## An toàn

@@ -59,21 +59,34 @@ Tìm:
 
 Contradiction KHÔNG tự resolve — report cho human, không materialize thành edge.
 
-## MCP tools (9 tools)
+## MCP tools — centralized server (`llm-wiki-base-mcp`)
+
+Centralized MCP server (1 entry trong Claude/OpenCode/Zed config) phục vụ **tất cả**
+wikis qua `~/.llm-wiki-base/registry.toml`. Mỗi tool có param `wiki=` tùy chọn:
+
+- `wiki=""` (rỗng) → **cross-wiki search** (tất cả wikis, kết quả gán `wiki` field).
+- `wiki="<name>"` → target wiki cụ thể.
+
+Write tools (wiki_submit, wiki_propose_edit) **bắt buộc** chỉ định `wiki` —
+human phải chỉ định wiki để contribute, MCP không tự chọn.
 
 | Tool | Vai trò |
 |---|---|
-| `wiki_search(query, top_k)` | Hybrid BM25 + vector trên wiki + raw |
-| `semantic_search(query, top_k)` | Chunk-level vector (cần `rag/index.py`) |
-| `wiki_read(path)` | Đọc 1 file (rel to WIKI_ROOT) |
-| `wiki_list(domain, kind)` | Liệt kê pages, filter theo domain/kind |
-| `list_raw_source(subdir)` | Liệt kê filename trong `raw/<subdir>/` |
-| `read_raw_source(name, subdir)` | Đọc raw source để cite provenance |
-| `wiki_submit(title, content, domain, source)` | **Ghi vào `raw/inbox/`** (KHÔNG wiki) |
-| `wiki_propose_edit(path, content)` | Staging vào `wiki/.proposals/`, chờ human sign-off |
-| `wiki_lint()` | Health-check wiki |
+| `wiki_search(query, top_k, wiki="")` | Hybrid BM25 + vector. `wiki=""` → all wikis |
+| `semantic_search(query, top_k, wiki="")` | Chunk-level vector (cần RAG index) |
+| `wiki_read(path, wiki="")` | Đọc file. `wiki=""` → tìm trong all wikis |
+| `wiki_list(domain, kind, category, wiki="")` | List pages, filter theo domain/kind |
+| `list_raw_source(subdir, wiki="")` | List raw sources |
+| `read_raw_source(name, subdir, wiki="")` | Đọc raw source để cite |
+| `wiki_submit(title, content, wiki, domain, source)` | **Bắt buộc `wiki`**: ghi vào `raw/inbox/` |
+| `wiki_propose_edit(path, content, wiki)` | **Bắt buộc `wiki`**: staging → `.proposals/` |
+| `wiki_lint(wiki="")` | Health-check. `wiki=""` → lint all wikis |
 
-**MCP KHÔNG BAO GIỜ ghi trực tiếp vào `wiki/`.** Ingest là maintainer-only.
+Resources: `registry://wikis` (list wikis), `wiki://<name>/index`, `wiki://<name>/log`.
+
+**MCP KHÔNG ingest.** MCP chỉ được phép research (search/read/lint) + contribute
+vào wiki do human chỉ định (inbox/proposals). Ingest pipeline (tạo/update `wiki/` pages)
+là maintainer-only: `llm-wiki ingest` (CLI) hoặc `llm-wiki-ingest` skill.
 
 ## An toàn
 
