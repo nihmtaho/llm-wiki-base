@@ -1,0 +1,9 @@
+- Before staging, run `git status` and inspect any unexpected modified files (not edited in the current session) to decide case-by-case whether to include them. Confidence: 0.85
+- Use `git add -u` to stage only modified files, explicitly excluding untracked scratch/cache/config files (e.g. `.commandcode/`, `Untitled*.base`, `*.wiki.db`). When the change includes NEW feature files (untracked), stage them explicitly by path (`git add src/llm_wiki/registry.py ...`) instead of `git add -u` (which only catches modifications) — never blindly `git add .`. Confidence: 0.9
+- After committing, verify the commit landed by running `git log --oneline -5` and `git status` to confirm working tree state. Confidence: 0.85
+- Prefer multi-line, structured commit messages via heredoc (`git commit -F - <<'EOF' ... EOF`) over single-line `-m` when the change spans multiple logical concerns — group related changes under bullet points. Confidence: 0.8
+- Use Conventional Commits-style type prefix in commit subject (e.g. `chore(wiki):`, `fix(wiki):`, `feat:`). Confidence: 0.85
+- Keep commit subject line ≤72 chars (validate via `check_git_commit.py` before commit; rewrite if too long). Confidence: 0.85
+- When the current branch is `main`, create a feature branch first (kebab-case slug, e.g. `feat/centralized-mcp-registry`) before committing feature work — never commit directly to `main`. Keep unrelated pre-existing modifications (e.g. `.gitignore`) out of the feature commit. Confidence: 0.8
+- After commit, explicitly report which files were NOT committed (untracked scratch/cache) and ask before pushing to remote. Confidence: 0.85
+- For Obsidian-flavored wikis, treat `Untitled*.base` files as personal scratch and never commit them. Confidence: 0.9

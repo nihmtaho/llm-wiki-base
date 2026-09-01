@@ -1,3 +1,4 @@
+# - Prefers Vietnamese for communication. Confidence: 0.8
 - Prefers Vietnamese for communication. Confidence: 0.8
 - Prefers naming components to align with the project name ("llm-wiki-base" prefix, e.g. default MCP server named "llm-wiki-base-mcp"). Confidence: 0.8
 - Prefers a centralized registry pattern: a single MCP server entry that aggregates multiple wiki instances registered by name+path in a central config, rather than spawning one server per wiki. Confidence: 0.85

@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(.venv/bin/python:*)",
+      "Shell(mv:*)",
+      "mcp__serena__replace_content",
+      "Shell(sort:*)",
+      "Shell(mkdir:*)",
+      "Shell(cd:*)",
+      "Shell(cat:*)",
+      "Shell(printf:*)",
+      "Shell(ls:*)",
+      "Shell(touch:*)",
+      "Shell(cp:*)",
+      "Shell(grep:*)",
+      "Shell(printf '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"1\"}}}\\n{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"wiki_search\",\"arguments\":{\"query\":\"unique_test_keyword_12345\",\"wiki\":\"my-project-wiki\"}}}\\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"wiki_search\",\"arguments\":{\"query\":\"test\",\"wiki\":\"nonexistent\"}}}\\n' | LLM_WIKI_BASE_DIR=/Users/nihmtaho/.llm-wiki-base /Users/nihmtaho/.llm-wiki-base/.venv/bin/python /Users/nihmtaho/.llm-wiki-base/tools/mcp_base_server.py > /tmp/mcp_out2.txt 2>/dev/null; python3 -c \" import json for line in open('/tmp/mcp_out2.txt'): try: r = json.loads(line) except: continue if r.get('id') in (2,3): c = r.get('result',{}).get('content',[{}]) text = c[0].get('text','') if c else '' print(f'id:{r[\\\"id\\\"]} → {text[:200]}') \")",
+      "Shell(git:*)"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  },
+  "tasteLearning": true
+}
