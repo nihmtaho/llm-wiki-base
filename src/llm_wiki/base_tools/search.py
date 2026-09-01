@@ -1,14 +1,29 @@
+import hashlib
+import json
 import logging
 import math
 import os
+import re
 
 import db
-from embed import EmbedProvider
+from config_file import get_config, effective
+from embed import EmbedProvider, DEFAULT_MODEL
 
 log = logging.getLogger("llm-wiki.search")
 
-BM25_WEIGHT = float(__import__("os").environ.get("WIKI_BM25_WEIGHT", "0.5"))
-VEC_WEIGHT = float(__import__("os").environ.get("WIKI_VEC_WEIGHT", "0.5"))
+
+def _retrieval_settings():
+    """Đọc retrieval config per-call (MCP _set_wiki_ctx đổi WIKI_ROOT per-wiki → cấm module-level).
+
+    Precedence: env (WIKI_BM25_WEIGHT/WIKI_VEC_WEIGHT) > TOML > builtin default.
+    """
+    cfg = get_config(db.WIKI_ROOT)
+    r = cfg["retrieval"]
+    bm25_weight = float(effective("WIKI_BM25_WEIGHT", r.get("bm25_weight") or None, 0.5))
+    vec_weight = float(effective("WIKI_VEC_WEIGHT", r.get("vec_weight") or None, 0.5))
+    relax_recall = bool(r.get("relax_recall", True))
+    vector_enabled = bool(r.get("vector", False))
+    return bm25_weight, vec_weight, relax_recall, vector_enabled
 
 
 def _cosine(a, b):
@@ -22,8 +37,23 @@ def _cosine(a, b):
     return dot / (na * nb)
 
 
+def _fts_or_query(query: str) -> str:
+    r"""Build OR-query từ các term của query (relax_recall fallback, CJK-safe).
+
+    Sanitize mỗi term về \w+ (giữ unicode letters/digits/CJK) — ký tự như `-`,
+    `"`, `()` làm FTS5 query parser lỗi hoặc đổi ngữ nghĩa.
+    """
+    terms = [re.sub(r"[^\w]+", "", t) for t in query.split()]
+    return " OR ".join(t for t in terms if t)
+
+
 def hybrid_search(conn, query, top_k=8, provider=None):
     """Trả về list[{path,title,domain,kind,score,snippet}] — hybrid BM25 + vector cosine."""
+    bm25_weight, vec_weight, relax_recall, vector_enabled = _retrieval_settings()
+    if not vector_enabled:
+        # vector=false → BM25-only (fallback tất định: thiếu model ≠ hỏng)
+        provider = None
+
     # BM25 via FTS5
     bm25 = {}
     try:
@@ -35,6 +65,19 @@ def hybrid_search(conn, query, top_k=8, provider=None):
             bm25[r["rowid"]] = -r["s"]
     except Exception:
         bm25 = {}
+    if not bm25 and relax_recall:
+        # AND-match 0 kết quả → thử lại OR một lần
+        or_query = _fts_or_query(query)
+        if or_query and or_query != query:
+            try:
+                cur = conn.execute(
+                    "SELECT rowid, bm25(pages_fts) AS s FROM pages_fts WHERE pages_fts MATCH ?",
+                    (or_query,),
+                )
+                for r in cur.fetchall():
+                    bm25[r["rowid"]] = -r["s"]
+            except Exception:
+                bm25 = {}
 
     rows = conn.execute(
         "SELECT id, path, title, domain, kind, content, embedding FROM pages"
@@ -49,14 +92,12 @@ def hybrid_search(conn, query, top_k=8, provider=None):
         score = 0.0
         matched = r["id"] in bm25
         if matched:
-            score += BM25_WEIGHT * bm25[r["id"]]
+            score += bm25_weight * bm25[r["id"]]
         emb = None
         if r["embedding"]:
-            import json
-
             emb = json.loads(r["embedding"])
         if qvec is not None and emb:
-            score += VEC_WEIGHT * _cosine(qvec, emb)
+            score += vec_weight * _cosine(qvec, emb)
             matched = True
         if matched:
             results.append(
@@ -97,7 +138,7 @@ def _title_from_content(content: str, fallback: str) -> str:
     return fallback
 
 
-def index_file(conn, path, title, domain, kind, content, provider=None, category=""):
+def index_file(conn, path, title, domain, kind, content, provider=None, category="", content_hash=None):
     """Index 1 page với metadata mới (domain/kind). `category` legacy — để trống cho page mới."""
     emb = None
     if provider is not None:
@@ -106,7 +147,7 @@ def index_file(conn, path, title, domain, kind, content, provider=None, category
         except Exception as e:
             log.warning("embed skip (%s); BM25-only", e)
     mtime = os.path.getmtime(path) if os.path.exists(path) else 0.0
-    db.upsert_page(conn, path, title, domain, kind, content, mtime, emb, category=category)
+    db.upsert_page(conn, path, title, domain, kind, content, mtime, emb, category=category, content_hash=content_hash)
 
 
 def index_file_at(conn, full, provider=None):
@@ -120,7 +161,8 @@ def index_file_at(conn, full, provider=None):
     category = ""
     if rel.startswith("wiki/") and domain in db.LEGACY_CATEGORIES and not kind:
         category = domain
-    index_file(conn, rel, title, domain, kind, content, provider, category=category)
+    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    index_file(conn, rel, title, domain, kind, content, provider, category=category, content_hash=content_hash)
 
 
 if __name__ == "__main__":

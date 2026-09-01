@@ -1,0 +1,35 @@
+# .llm-wiki.toml — behavior config per-wiki. COMMIT file này (không chứa secret).
+# Runtime plumbing (đường dẫn, DB routing của MCP) vẫn qua env vars — xem .env.
+# Precedence: env var > giá trị trong file này > builtin default.
+# Bỏ comment key muốn đổi; phần còn lại lấy default.
+
+[translate]
+enabled = false             # true → ingest tự gọi skill llm-wiki-translate cho mỗi page mới
+langs = []                  # vd ["vi", "ja"]
+
+[retrieval]
+mode = "hybrid"             # structural | bm25 | hybrid
+vector = false              # BẬT sau khi eval cho thấy recall tụt (tắt = BM25-only, đủ dùng ở scale nhỏ)
+chunk_tokens = 512          # chunk theo section, ~chunk_tokens*4 chars (xấp xỉ token)
+top_k_bm25 = 20
+top_k_vector = 20
+top_n_final = 8             # số concept tối đa vào context sau khi merge
+relax_recall = true         # AND-match 0 kết quả → thử lại OR một lần (CJK-safe)
+bm25_weight = 0.5           # env override: WIKI_BM25_WEIGHT
+vec_weight = 0.5            # env override: WIKI_VEC_WEIGHT
+
+[retrieval.index]
+embed_model = ""            # rỗng = builtin (sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2); env override: WIKI_EMBED_MODEL
+rebuild = "on-ingest"       # on-ingest | on-demand | manual
+
+[review]
+interval_days = 7           # review (skill) chỉ chạy full khi quá mốc này; watch chỉ nhắc "due"
+max_pages = 80              # cap input một pass review; vượt → chỉ recent + tag-neighbor
+
+[lifecycle]
+default_stale_after_days = 180   # gợi ý stale_after khi tạo concept (0 = không set)
+
+[lint]
+banned_terms = []           # từ ngữ cảnh báo (advisory, không chặn)
+max_bullet_items = 3        # >N mục dồn một dòng → dense-bullet finding
+max_indent_depth = 3

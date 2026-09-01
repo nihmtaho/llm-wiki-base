@@ -4,7 +4,8 @@ import os
 
 import db
 import search
-from embed import EmbedProvider
+from config_file import get_config, effective
+from embed import EmbedProvider, DEFAULT_MODEL
 
 # Skip translated files (song song EN source + bản dịch, bản dịch KHÔNG index).
 # Match <slug>.<lang>.md pattern (lang 2-3 chữ cái). Source EN không match.
@@ -31,7 +32,19 @@ def main():
     title = search._title_from_content(content, rel)
     c = db.get_conn()
     db.init_db(c)
-    prov = EmbedProvider()
+    cfg = get_config(root)
+    _r = cfg["retrieval"]
+    prov = None
+    if _r.get("vector"):
+        prov = EmbedProvider(
+            model=str(
+                effective(
+                    "WIKI_EMBED_MODEL",
+                    (_r.get("index") or {}).get("embed_model") or None,
+                    DEFAULT_MODEL,
+                )
+            )
+        )
     search.index_file(c, rel, title, domain, kind, content, provider=prov)
     print(
         f"indexed {rel} (domain={domain!r}, kind={kind!r}, {len(content)} chars) into {db.DB_PATH}"

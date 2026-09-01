@@ -15,6 +15,8 @@ Subcommands:
     watch           — wrapper: daemon scan inbox + ingest + reindex
     translate add   — dịch wiki pages sang ngôn ngữ khác
     translate check — verify bản dịch đồng bộ với source
+    config show     — in effective config (defaults + .llm-wiki.toml + env override)
+    verify          — human duyệt artifact: set/clear `verified` trong frontmatter page
 """
 import os
 import subprocess
@@ -45,6 +47,9 @@ app.add_typer(base_app, name="base")
 
 translate_app = typer.Typer(help="Translate wiki pages sang ngôn ngữ khác")
 app.add_typer(translate_app, name="translate")
+
+config_app = typer.Typer(help="Behavior config per-wiki (.llm-wiki.toml)")
+app.add_typer(config_app, name="config")
 
 console = Console()
 
@@ -338,10 +343,17 @@ def ingest_cmd(
 
 @app.command("reindex")
 def reindex_cmd(
+    full: bool = typer.Option(False, "--full", help="Rebuild toàn bộ từ đầu (bỏ qua content-hash). Bắt buộc sau khi đổi embed_model/chunk_tokens/vector."),
+    check: bool = typer.Option(False, "--check", help="Dry-run: báo sẽ index/xoá gì + config drift, KHÔNG ghi."),
     root: Path = typer.Option(Path.cwd(), "--root", "-r", help="Wiki root (default: cwd)."),
 ) -> None:
-    """Rebuild search DB + RAG index cho toàn bộ wiki."""
-    _run_base_tool("reindex.py", [], root)
+    """Rebuild search DB + RAG index. Mặc định tăng dần theo content-hash."""
+    args = []
+    if full:
+        args.append("--full")
+    if check:
+        args.append("--check")
+    _run_base_tool("reindex.py", args, root)
 
 
 @app.command("lint")
@@ -437,6 +449,92 @@ def translate_check(
     from llm_wiki.translate import run_check
     code = run_check(wiki_root=root, lang=lang)
     raise typer.Exit(code)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Config (.llm-wiki.toml)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# Env override map cho các key đã migrate từ env vars.
+_ENV_KEYS: dict[tuple[str, ...], str] = {
+    ("retrieval", "bm25_weight"): "WIKI_BM25_WEIGHT",
+    ("retrieval", "vec_weight"): "WIKI_VEC_WEIGHT",
+    ("retrieval", "index", "embed_model"): "WIKI_EMBED_MODEL",
+}
+
+
+def _print_config(cfg: dict, raw: dict, prefix: str = "") -> None:
+    for k, v in cfg.items():
+        path = prefix + k
+        if isinstance(v, dict):
+            console.print(f"[bold]{path}[/bold]")
+            _print_config(v, raw.get(k, {}) if isinstance(raw.get(k), dict) else {}, path + ".")
+            continue
+        if _ENV_KEYS.get(tuple(path.split("."))) and os.environ.get(_ENV_KEYS[tuple(path.split("."))]):
+            src = f"[yellow]env {_ENV_KEYS[tuple(path.split('.'))]}[/yellow]"
+        elif k in raw:
+            src = "[cyan]toml[/cyan]"
+        else:
+            src = "[dim]default[/dim]"
+        console.print(f"  {path} = {v!r}  {src}")
+
+
+@config_app.command("show")
+def config_show(
+    root: Path = typer.Option(
+        Path(os.environ.get("WIKI_ROOT", ".")), "--root",
+        help="Wiki root (mặc định $WIKI_ROOT hoặc cwd).",
+    ),
+) -> None:
+    """In effective config: builtin defaults + .llm-wiki.toml + env override.
+
+    Mỗi dòng đánh dấu nguồn: [default] / [toml] / [env ...].
+    """
+    from llm_wiki.config_file import get_config, load
+    cfg = get_config(root)
+    raw = load(root)
+    if not raw:
+        console.print("[dim](.llm-wiki.toml không tồn tại — dùng toàn bộ defaults)[/dim]\n")
+    _print_config(cfg, raw)
+    console.print()
+    console.print("Đổi giá trị: sửa [cyan].llm-wiki.toml[/cyan] ở wiki root (env var override khi set).")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Verify (human duyệt artifact — cả personal + project)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@app.command("verify")
+def verify_cmd(
+    path: str = typer.Argument(..., help="Page path relative to wiki root (vd: wiki/tech/concept/x.md)."),
+    by: str | None = typer.Option(None, "--by", "-b", help="Human id duyệt (vd: nihmtaho). Bắt buộc khi set (không cần cho --unverify). Lưu dạng human:<id>."),
+    unverify: bool = typer.Option(False, "--unverify", help="Xoá field verified (hạ về unverified)."),
+    root: Path = typer.Option(
+        Path(os.environ.get("WIKI_ROOT", ".")), "--root",
+        help="Wiki root (mặc định $WIKI_ROOT hoặc cwd).",
+    ),
+) -> None:
+    """Human duyệt artifact: set/clear `verified` trong frontmatter page.
+
+    Duyệt = set verified → trust tier *human-reviewed*. Cùng cơ chế cho
+    personal + project wiki. Không LLM — deterministic frontmatter edit.
+    """
+    if not unverify and not by:
+        console.print("[red]Error:[/red] thiếu --by (human id duyệt). Dùng --unverify để xoá verified.")
+        raise typer.Exit(1)
+    from llm_wiki import verify as verify_mod
+    try:
+        if unverify:
+            p = verify_mod.unverify(root, path)
+            console.print(f"[green]✓[/green] unverified → {p}")
+        else:
+            p = verify_mod.set_verified(root, path, by)
+            console.print(f"[green]✓[/green] verified (human-reviewed) → {p}")
+    except (ValueError, FileNotFoundError) as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

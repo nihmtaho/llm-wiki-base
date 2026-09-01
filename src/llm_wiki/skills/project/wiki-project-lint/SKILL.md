@@ -1,15 +1,17 @@
 ---
 name: wiki-project-lint
-description: Health-check project-wiki — tìm orphan page, broken link, missing file, stale code reference, frontmatter thiếu domain/kind, stale claim. Contradiction với code báo human. Companion của wiki-project-research + wiki-project-ingest.
+description: Health-check TẤT ĐỊNH project-wiki — orphan, broken link, missing file, frontmatter, timestamp, footnote↔sources, index sync, pins orphan. Stale code reference + contradiction là việc của wiki-project-review. Companion của wiki-project-research + wiki-project-ingest.
 ---
 
 # Wiki Project — Lint
+
+Nguyên tắc: **tất định trước, sinh sinh sau.** Skill này lo cấu trúc; semantic (mâu thuẫn, stale claim, stale code reference verdict) là việc của skill `wiki-project-review`.
 
 Schema: `_schema.md`. Runbook: `CLAUDE.md`.
 
 ## Khi nào
 
-Định kỳ (watch chạy mỗi `WATCH_LINT_SEC`) hoặc human bảo "lint wiki" / "check wiki có stale không".
+Định kỳ (watch chạy mỗi `WATCH_LINT_SEC`) hoặc human bảo "lint wiki".
 
 ## Quy trình
 
@@ -17,28 +19,26 @@ Schema: `_schema.md`. Runbook: `CLAUDE.md`.
    ```bash
    llm-wiki lint
    ```
-   Trả `page_count`, `orphans`, `missing_file`, `findings`.
-2. Xử lý:
+   Trả `page_count`, `orphans`, `missing_file`, `findings` (mỗi finding có tên check).
+2. Xử lý từng loại finding:
    - **orphan** (page không có inbound `[[link]]`): tìm page liên quan để link tới, hoặc ghi nhận intentional.
-   - **missing_file**: page trong DB nhưng thiếu file trên disk → reconcile (chạy `llm-wiki reindex`).
-   - **broken link**: `[[target]]` trỏ sai path → sửa.
-   - **missing index entry**: page chưa có trong `<wiki_root>/wiki/<domain>/index.md` hoặc domain mới chưa có row trong `<wiki_root>/wiki/index.md` → thêm.
-   - **frontmatter thiếu `domain`/`kind`**: page cũ chỉ có `category: <folder>` → bổ sung `domain` + `kind` mới.
-   - **`sources:` chứa local path** (rule `sources-no-local-path`): drop, đặt `[]` hoặc chỉ giữ URL.
-   - **Body inline `[[raw/inbox/...]]`** (rule `body-no-raw-inbox-wikilink`): xoá. `[[raw/...]]` (ngoài inbox) cho phép.
-3. **Stale check vs code** (project-specific, quan trọng):
-   - Lấy tất cả `entity` + `concept` pages, extract code paths/filenames được reference.
-   - Với mỗi path: `grep` / `find` xem còn tồn tại trong codebase không.
-   - Nếu path không tồn tại → flag stale, đề xuất update.
-   - **Không tự sửa** stale claim về code — báo human.
-4. **Sync index (DB + RAG)**: đảm bảo `<wiki_root>/wiki/.wiki.db` + `<wiki_root>/rag/.rag_index/` đồng bộ với wiki:
+   - **missing_file**: page trong DB nhưng thiếu file trên disk → `llm-wiki lint --fix` (xoá dangling rows).
+   - **broken-wikilink**: `[[target]]` trỏ file không tồn tại → sửa.
+   - **missing-index-entry** / **domain-missing-index**: `llm-wiki lint --fix` — tự thêm entry (additive) + tạo index.md.
+   - **missing-frontmatter** / **status-vocab** / **timestamp-format**: sửa frontmatter theo `_schema.md` (vocab gồm `planned`/`deprecated`/`superseded`).
+   - **stale-after-passed**: `stale_after` quá hạn → report human, KHÔNG tự đổi status.
+   - **footnote-sources-match**: `[^id]` không khớp `sources[].id` → sửa citation hoặc sources.
+   - **`sources-no-local-path`** / **body-no-raw-inbox-wikilink**: drop `raw/inbox/` refs.
+   - **pin-orphan**: pin trong `wiki/pins.yml` mất concept/anchor → report human, KHÔNG tự xoá pin.
+   - **dense-bullet / indent-depth / banned-terms**: advisory.
+3. **Code path thu thập** (project-specific, input cho review):
+   - Extract code paths/filenames được reference trong entity + concept pages → chuyển danh sách cho `wiki-project-review` verdict stale (grep/find confirm). KHÔNG tự kết luận + tự sửa ở đây.
+4. **Sync index (DB + RAG)**:
    ```bash
    llm-wiki reindex
    ```
-   Idempotent — index `raw/**` + `wiki/**` vào DB + rebuild RAG.
-5. **Contradiction** (2 page claim mâu thuẫn, hoặc wiki claim ↔ code mâu thuẫn): đọc kỹ, **report human** kèm trích dẫn. KHÔNG materialize thành edge.
-6. **Stale claim vs source mới hơn**: source mới supersede → đánh dấu `status: stale` + `confidence: superseded`, đề xuất update.
-7. **Domain coverage**: liệt kê tất cả top-level folder `wiki/*/` (không tính `index.md`, `log.md`, `.proposals/`). Mỗi folder nên có `index.md`.
+   Tăng dần theo content-hash; `--check` dry-run; `--full` khi config đổi.
+5. **Chuyển semantic cho review**: contradiction, stale claim vs source mới, stale code path verdict → skill `wiki-project-review` (cadence `[review].interval_days`).
 
 ## MCP tools
 
@@ -46,7 +46,7 @@ Schema: `_schema.md`. Runbook: `CLAUDE.md`.
 
 ## An toàn
 
-- Lint chỉ báo cáo. Sửa cross-link/index/frontmatter là re-derivable → agent tự làm.
-- Quyết định semantic (contradiction, stale, code ref stale) thuộc human.
-- Không xoá page kể cả khi orphan — người quyết định.
-- **Stale check vs code chỉ là heuristic** — grep có thể miss (case sensitivity, glob pattern, monorepo paths). Confirm với human trước khi update.
+- Lint chỉ báo cáo + auto-fix re-derivable (index entries, dangling rows, format).
+- Quyết định semantic (contradiction, stale, code ref stale) thuộc human qua review skill.
+- Không xoá page kể cả khi orphan — người quyết định. Không xoá pin.
+- Stale check vs code chỉ là heuristic — confirm với human trước khi update.

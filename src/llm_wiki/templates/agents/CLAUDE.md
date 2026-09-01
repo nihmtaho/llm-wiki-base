@@ -25,7 +25,7 @@ Nếu repo dùng template: `bash init.sh` thay cho 2 lệnh trên.
    - Không có URL → `sources: []` (KHÔNG dùng path local — vi phạm copied-state rule).
 4. Update entity/concept pages liên quan (1 source có thể chạm 10-15 page).
 5. Update `wiki/<domain>/index.md`. Nếu domain mới → tạo + insert row vào `wiki/index.md` (top-level). Page count = `find wiki/<domain> -name "*.md" | wc -l` (chính xác, không đoán).
-6. Insert vào `wiki/log.md` (reverse-chronological). Format: `## [YYYY-MM-DD HH:MM:SS] <op> | <title>` với `op ∈ ingest|wiki_lint|migrate|fix`. Body bullets chỉ viết action thực sự có.
+6. Insert vào `wiki/log.md` (reverse-chronological). Format: `## [YYYY-MM-DD HH:MM:SS] <op> | <title>` với `op ∈ ingest|review|consolidate|verify|wiki_lint|migrate|fix`. Body bullets chỉ viết action thực sự có.
 7. Index DB: `.venv/bin/python tools/ingest.py <path>` (KHÔNG qua MCP).
 8. Move source: cả URL + no-URL đều → `raw/` (local cache, có thể xoá). Watch daemon tự động.
 
@@ -42,22 +42,21 @@ Nếu repo dùng template: `bash init.sh` thay cho 2 lệnh trên.
 - **NO markdown wrapping**: `[text]([[path]])` breaks Obsidian render.
 - Alias: `[[path|Custom Text]]`.
 
-## Lint
+## Lint / Review / Consolidate
 
 ```bash
-PYTHONPATH=tools .venv/bin/python -c "import db,lint; print(lint.lint(db.get_conn()))"
+llm-wiki lint          # deterministic checks + findings
+llm-wiki lint --fix    # xoá dangling rows + thêm index entries (additive)
+llm-wiki reindex       # tăng dần theo content-hash (--check dry-run, --full rebuild)
 ```
 
-Tìm:
-- Orphan pages (không có inbound link).
-- Broken `[[wikilinks]]` (target không tồn tại).
-- Missing file trên disk (CRITICAL — search trả row nhưng file gone).
-- `sources:` chứa `raw/inbox/...` path (rule `sources-no-local-path`). `raw/` (ngoài inbox) cho phép.
-- Body inline `[[raw/inbox/...]]` (rule `body-no-raw-inbox-wikilink`). `[[raw/...]]` (ngoài inbox) cho phép.
-- Frontmatter thiếu `domain`/`kind`.
-- Domain mới chưa có `index.md`.
+Lint (tất định): orphan, broken-wikilink, missing-file (CRITICAL), missing-frontmatter, status-vocab, timestamp-format, footnote-sources-match, stale-after-passed, missing-index-entry, pin-orphan, `sources-no-local-path`, `body-no-raw-inbox-wikilink`, dense-bullet/indent-depth/banned-terms (advisory).
 
-Contradiction KHÔNG tự resolve — report cho human, không materialize thành edge.
+Review (sinh sinh, skill `llm-wiki-review` / `wiki-project-review`): contradiction, stale claim, stale code reference (project), khái niệm thiếu, trust gap, pin conflict → gaps vào `wiki/alerts/` (`kind: alert, status: open`); không nêu lại 2 lần liên tiếp → tự đóng. Cadence `[review].interval_days` (watch in `[review] due`).
+
+Consolidate (skill `llm-wiki-consolidate` / `wiki-project-consolidate`): gộp log/mẩu rải rác → concept canonical; additive; distill-verify (citation không co); trùng → `superseded` + `x_supersedes`.
+
+Trust tier: page có `generated: {by, at}`; human duyệt = `llm-wiki verify <path> --by <id>` (set `verified`, cả personal + project). AI KHÔNG tự set `verified`; đổi judgment → `--unverify`.
 
 ## MCP tools — centralized server (`llm-wiki-base-mcp`)
 
@@ -95,14 +94,26 @@ là maintainer-only: `llm-wiki ingest` (CLI) hoặc `llm-wiki-ingest` skill.
 - **Provenance bắt buộc.** Mọi claim có `[[wiki page]]` trong body hoặc URL trong `sources:`.
 - **Raw local cache (gitignored).** User có thể xoá tùy ý — provenance nằm trong `sources:` field (URL gốc). Pin source quan trọng: `git add -f raw/<file>`.
 
-## Embedding
+## Embedding & retrieval config
 
 Default on-device (no API): `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384-dim, đa ngôn ngữ VN/Nhật/Anh).
 
-Env override:
-- `WIKI_EMBED_MODEL` — model name (default trên).
+**Behavior config nằm ở `.llm-wiki.toml`** (wiki root, commit):
+```toml
+[retrieval]
+vector = false          # BM25-only mặc định; bật sau khi eval cho thấy recall tụt
+chunk_tokens = 512
+top_n_final = 8
+relax_recall = true     # AND-match 0 → retry OR một lần
+
+[retrieval.index]
+embed_model = ""        # rỗng = builtin default
+```
+
+Env override (ưu tiên cao hơn TOML):
+- `WIKI_EMBED_MODEL` — model name.
 - `WIKI_EMBED_DIM` — vector dim (default 384, phải match model).
 - `WIKI_BM25_WEIGHT`, `WIKI_VEC_WEIGHT` — hybrid search tuning (default 0.5/0.5).
 - `WIKI_DB` — SQLite path (default `<WIKI_ROOT>/wiki/.wiki.db`).
 
-Đổi model → phải rebuild `rag/.rag_index/`.
+Xem effective config: `llm-wiki config show`. Đổi `embed_model`/`chunk_tokens`/`vector` → chạy `llm-wiki reindex --full`.

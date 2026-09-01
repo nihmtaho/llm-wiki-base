@@ -1,11 +1,28 @@
+"""Reindex search DB + RAG index — TĂNG DẦN theo content-hash.
+
+Markdown là nguồn sự thật; index (DB + RAG) là derived, vứt đi rebuild được.
+
+Chế độ:
+    reindex            — tăng dần (mặc định): chỉ xử lý file đổi/mới/xoá.
+    reindex --full     — rebuild toàn bộ từ đầu (bỏ qua hash). Bắt buộc sau khi
+                         đổi embed_model/chunk_tokens/vector trong .llm-wiki.toml.
+    reindex --check    — dry-run: báo sẽ index/xoá gì + config drift, KHÔNG ghi.
+
+Metadata drift: <WIKI_DIR>/.index_meta.json ghi embed_model/vector/chunk_tokens
+của lần reindex cuối — lệch config hiện tại → warning "chạy reindex --full".
+"""
+import argparse
+import glob
+import hashlib
+import json
 import os
 import re
 import sys
-import glob
 
 import db
 import search
-from embed import EmbedProvider
+from config_file import get_config, effective
+from embed import EmbedProvider, DEFAULT_MODEL
 from paths import WIKI_ROOT, WIKI_DIR, RAW_DIR, RAG_DIR, SKIP_DIRS
 
 # Skip bản dịch khi reindex (song song EN source, bản dịch KHÔNG vào DB).
@@ -19,15 +36,40 @@ if _GLOBAL_RAG not in sys.path:
     sys.path.insert(0, _GLOBAL_RAG)
 import index as rag_index
 
+INDEX_META_FILE = os.path.join(str(WIKI_DIR), ".index_meta.json")
+SCHEMA_VERSION = 2
 
-def main():
-    c = db.get_conn()
-    db.init_db(c)
-    prov = EmbedProvider()
 
-    # Collect all existing files
-    existing = set()
-    n = 0
+def _current_settings() -> dict:
+    cfg = get_config(WIKI_ROOT)
+    r = cfg["retrieval"]
+    model = str(
+        effective(
+            "WIKI_EMBED_MODEL",
+            (r.get("index") or {}).get("embed_model") or None,
+            DEFAULT_MODEL,
+        )
+    )
+    return {
+        "embed_model": model,
+        "vector": bool(r.get("vector", False)),
+        "chunk_tokens": int(r.get("chunk_tokens", 512)),
+        "schema_version": SCHEMA_VERSION,
+    }
+
+
+def _load_meta() -> dict:
+    if os.path.exists(INDEX_META_FILE):
+        try:
+            with open(INDEX_META_FILE, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def _collect_files() -> list[tuple[str, str]]:
+    files = []
     for pat in (
         os.path.join(RAW_DIR, "**", "*.md"),
         os.path.join(WIKI_DIR, "**", "*.md"),
@@ -39,19 +81,102 @@ def main():
             if TRANSLATED_SUFFIX_RE.search(os.path.basename(fp)):
                 # bản dịch (.lang.md) — KHÔNG index
                 continue
-            rel = os.path.relpath(fp, WIKI_ROOT)
-            existing.add(rel)
-            search.index_file_at(c, fp, prov)
-            n += 1
+            files.append((os.path.relpath(fp, WIKI_ROOT), fp))
+    return files
 
-    # Delete stale entries
-    stale = [row["path"] for row in c.execute("SELECT path FROM pages").fetchall() if row["path"] not in existing]
+
+def _file_hash(fp: str) -> str:
+    with open(fp, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def _drift(meta: dict, current: dict) -> dict:
+    return {
+        k: {"meta": meta.get(k), "current": v}
+        for k, v in current.items()
+        if meta.get(k) != v
+    }
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description="Reindex search DB + RAG index (tăng dần theo content-hash)"
+    )
+    ap.add_argument(
+        "--full", action="store_true",
+        help="Rebuild toàn bộ (bỏ qua content-hash). Bắt buộc sau khi đổi embed_model/chunk_tokens/vector.",
+    )
+    ap.add_argument(
+        "--check", action="store_true",
+        help="Dry-run: báo sẽ index/xoá gì + config drift, không ghi.",
+    )
+    args = ap.parse_args()
+
+    c = db.get_conn()
+    db.init_db(c)
+    current = _current_settings()
+    meta = _load_meta()
+    drift = _drift(meta, current) if meta else {}
+
+    files = _collect_files()
+    file_set = {rel for rel, _ in files}
+
+    to_index = []
+    for rel, fp in files:
+        if args.full:
+            to_index.append((rel, fp))
+            continue
+        row = c.execute(
+            "SELECT content_hash FROM pages WHERE path=?", (rel,)
+        ).fetchone()
+        if row and row["content_hash"] and row["content_hash"] == _file_hash(fp):
+            continue
+        to_index.append((rel, fp))
+
+    stale = [
+        row["path"]
+        for row in c.execute("SELECT path FROM pages").fetchall()
+        if row["path"] not in file_set
+    ]
+
+    if args.check:
+        print(f"[check] sẽ index: {len(to_index)} file(s)")
+        for rel, _ in to_index[:20]:
+            print(f"  + {rel}")
+        if len(to_index) > 20:
+            print(f"  ... và {len(to_index) - 20} file khác")
+        print(f"[check] sẽ xoá stale rows: {len(stale)}")
+        for p in stale[:20]:
+            print(f"  - {p}")
+        if drift:
+            print("[check] config drift (chạy `reindex --full` để rebuild):")
+            for k, d in drift.items():
+                print(f"  {k}: {d['meta']} -> {d['current']}")
+        return
+
+    prov = EmbedProvider(model=current["embed_model"]) if current["vector"] else None
+    n = 0
+    for rel, fp in to_index:
+        search.index_file_at(c, fp, prov)
+        n += 1
     for p in stale:
         c.execute("DELETE FROM pages WHERE path=?", (p,))
     c.commit()
+    print(f"wiki DB reindexed: {n} files indexed, removed {len(stale)} stale entries")
 
-    print(f"wiki DB reindexed: {n} files, removed {len(stale)} stale entries")
-    r = rag_index.build_index()
+    with open(INDEX_META_FILE, "w", encoding="utf-8") as f:
+        json.dump(current, f, ensure_ascii=False, indent=2)
+
+    if drift:
+        print(
+            "[warn] config đổi so với lần reindex trước — "
+            "chạy `llm-wiki reindex --full` để rebuild embeddings theo config mới"
+        )
+
+    if not current["vector"]:
+        print("vector skipped (retrieval.vector=false) — BM25/FTS vẫn chạy")
+        return
+    r = rag_index.build_index(full=args.full)
     print(f"rag index rebuilt: {r} chunks")
 
 

@@ -114,6 +114,13 @@ def run(
         )
         console.print("  [green]✓[/green] .gitignore")
 
+    # 4b. .llm-wiki.toml (behavior config — commit vào wiki repo)
+    if template_exists("templates", "llm-wiki.toml") and not (wiki_dir / ".llm-wiki.toml").exists():
+        (wiki_dir / ".llm-wiki.toml").write_text(
+            read_template("templates", "llm-wiki.toml"), encoding="utf-8"
+        )
+        console.print("  [green]✓[/green] .llm-wiki.toml (wiki config — commit file này)")
+
     # 5. .env point to global base
     if not (wiki_dir / ".env").exists():
         env_content = (

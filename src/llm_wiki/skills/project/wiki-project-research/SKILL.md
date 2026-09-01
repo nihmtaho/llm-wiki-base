@@ -17,8 +17,8 @@ Mọi project codebase có 1 project wiki song song tại `<project>/project-wik
 ## Workflow
 
 1. **Đọc `<project>/project-wiki/wiki/index.md`** để biết có những domain nào (tech-stack, architecture, conventions, ...).
-2. **`wiki_search`** (MCP) với query liên quan — hybrid BM25 + vector.
-3. **Đọc relevant pages** (`wiki_read`) — note paths, conventions, gotchas.
+2. **`wiki_search`** (MCP) với query liên quan — hybrid BM25 + vector (nếu `[retrieval].vector = false` trong `.llm-wiki.toml` → tự degrade BM25-only, vẫn chạy). AND-match 0 kết quả → tool tự retry OR (relax_recall).
+3. **Đọc relevant pages** (`wiki_read`) — note paths, conventions, gotchas. Đọc tối đa `[retrieval].top_n_final` concept (default 8). **Trust tier check** (cả personal + project): page `status: draft`/không `verified` → coi như unverified, cross-check với code trước khi tin; `stale_after` quá hạn → coi là stale; ưu tiên human-reviewed (`verified.by: human:*`).
 4. **Cross-check với code** qua `codegraph` (nếu có) — verify wiki vẫn còn đúng (không stale).
 5. **Update wiki** nếu phát hiện thiếu hoặc sai (qua `wiki_propose_edit`).
 

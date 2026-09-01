@@ -28,15 +28,63 @@ def get_conn(db_path: str | None = None) -> sqlite3.Connection:
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
+def _split_top(s: str, sep: str) -> list[str]:
+    """Split tôn trọng quote + bracket lồng (cho inline dict/list)."""
+    parts: list[str] = []
+    buf = ""
+    quote: str | None = None
+    depth = 0
+    for ch in s:
+        if quote:
+            buf += ch
+            if ch == quote:
+                quote = None
+            continue
+        if ch in "\"'":
+            quote = ch
+            buf += ch
+            continue
+        if ch in "{[(":
+            depth += 1
+        elif ch in "}])":
+            depth -= 1
+        if ch == sep and depth == 0:
+            parts.append(buf)
+            buf = ""
+        else:
+            buf += ch
+    if buf.strip():
+        parts.append(buf)
+    return parts
+
+
+def _parse_inline_dict(val: str) -> dict | None:
+    """Parse `{k: v, k2: "v2"}` (flat dict). Trả None nếu không phải dict hợp lệ."""
+    if not (val.startswith("{") and val.endswith("}")):
+        return None
+    inner = val[1:-1].strip()
+    if not inner:
+        return {}
+    out: dict = {}
+    for part in _split_top(inner, ","):
+        if ":" not in part:
+            continue
+        k, _, v = part.partition(":")
+        out[k.strip().strip("\"'")] = v.strip().strip("\"'")
+    return out
+
+
 def parse_frontmatter(content: str) -> dict:
     """Parse YAML-like frontmatter từ đầu file markdown. Trả dict rỗng nếu không có.
 
     Hỗ trợ:
     - key: value (string)
-    - key: [a, b, c] (list)
-    - key: (block) — danh sách nhiều dòng bắt đầu bằng "  - " (cho pins:)
+    - key: [a, b, c] (inline list)
+    - key: {k: v, k2: "v2"} (inline dict flat — vd generated/verified trust fields)
+    - key: (block) list nhiều dòng "  - " — item là string HOẶC dict với
+      continuation "    key: value" (vd sources list-of-dicts có id/resource)
 
-    Không hỗ trợ nested/complex — đủ cho schema wiki. Nếu cần YAML đầy đủ → pip install pyyaml.
+    Nested sâu hơn không hỗ trợ — đủ cho schema wiki. Nếu cần YAML đầy đủ → pip install pyyaml.
     """
     m = _FRONTMATTER_RE.match(content)
     if not m:
@@ -45,17 +93,38 @@ def parse_frontmatter(content: str) -> dict:
     out: dict = {}
     current_key: str | None = None
     current_list: list | None = None
+    current_dict: dict | None = None
+
+    def _flush_list() -> None:
+        nonlocal current_key, current_list, current_dict
+        if current_key is not None and current_list is not None:
+            out[current_key] = current_list
+        current_key = None
+        current_list = None
+        current_dict = None
+
     for raw in block.splitlines():
         line = raw.rstrip()
         if not line:
             continue
+        # dict continuation trong block list (vd "    resource: ..." sau "  - id: s1")
+        if current_dict is not None and line.startswith("    ") and ":" in line:
+            k, _, v = line.strip().partition(":")
+            current_dict[k.strip()] = v.strip().strip("\"'")
+            continue
         if current_list is not None and line.startswith("  - "):
-            current_list.append(line[4:].strip())
+            item = line[4:].strip()
+            if ":" in item:
+                k, _, v = item.partition(":")
+                d = {k.strip(): v.strip().strip("\"'")}
+                current_list.append(d)
+                current_dict = d
+            else:
+                current_dict = None
+                current_list.append(item)
             continue
         if current_list is not None:
-            out[current_key] = current_list
-            current_list = None
-            current_key = None
+            _flush_list()
         if ":" not in line:
             continue
         key, _, val = line.partition(":")
@@ -64,14 +133,18 @@ def parse_frontmatter(content: str) -> dict:
         if not val:
             current_key = key
             current_list = []
+            current_dict = None
+            continue
+        if val.startswith("{") and val.endswith("}"):
+            d = _parse_inline_dict(val)
+            out[key] = d if d is not None else val
             continue
         if val.startswith("[") and val.endswith("]"):
             inner = val[1:-1].strip()
             out[key] = [s.strip().strip('"').strip("'") for s in inner.split(",") if s.strip()]
         else:
             out[key] = val.strip('"').strip("'")
-    if current_list is not None and current_key is not None:
-        out[current_key] = current_list
+    _flush_list()
     return out
 
 
@@ -154,6 +227,8 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE pages ADD COLUMN domain TEXT DEFAULT ''")
     if not _table_has_column(conn, "pages", "kind"):
         conn.execute("ALTER TABLE pages ADD COLUMN kind TEXT DEFAULT ''")
+    if not _table_has_column(conn, "pages", "content_hash"):
+        conn.execute("ALTER TABLE pages ADD COLUMN content_hash TEXT DEFAULT ''")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_pages_category ON pages(category)"
     )
@@ -185,6 +260,7 @@ def upsert_page(
     mtime,
     embedding=None,
     category="",
+    content_hash=None,
 ):
     """Upsert page. `category` legacy chỉ dùng cho row cũ — page mới truyền category=''."""
     emb = json.dumps(embedding) if embedding is not None else None
@@ -193,14 +269,13 @@ def upsert_page(
     if row:
         pid = row["id"]
         conn.execute(
-            "UPDATE pages SET title=?, category=?, domain=?, kind=?, content=?, mtime=?, embedding=? WHERE id=?",
-            (title, category, domain, kind, content, mtime, emb, pid),
+            "UPDATE pages SET title=?, category=?, domain=?, kind=?, content=?, mtime=?, embedding=?, content_hash=? WHERE id=?",
+            (title, category, domain, kind, content, mtime, emb, content_hash or "", pid),
         )
-        conn.execute("DELETE FROM pages_fts WHERE rowid = ?", (pid,))
     else:
         cur = conn.execute(
-            "INSERT INTO pages (path, title, category, domain, kind, content, mtime, embedding) VALUES (?,?,?,?,?,?,?,?)",
-            (path, title, category, domain, kind, content, mtime, emb),
+            "INSERT INTO pages (path, title, category, domain, kind, content, mtime, embedding, content_hash) VALUES (?,?,?,?,?,?,?,?,?)",
+            (path, title, category, domain, kind, content, mtime, emb, content_hash or ""),
         )
         pid = cur.lastrowid
     conn.execute(

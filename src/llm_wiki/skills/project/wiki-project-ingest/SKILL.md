@@ -23,13 +23,17 @@ Có source mới trong `<project>/project-wiki/raw/inbox/` — do human thả, `
    - Domain thường gặp cho project: `tech-stack`, `architecture`, `conventions`, `dependencies`, `deployment`, `testing`, `security`, `api`, `data-model`, `domain/<sub>`.
    - Nếu đã có folder khớp → dùng luôn. Nếu chưa → tạo folder mới theo naming rule (kebab-case, ASCII-safe).
    - Tạo `wiki/<domain>/index.md` rỗng nếu chưa có.
-4. Viết summary page → `wiki/<domain>/source/<slug>.md` với frontmatter BẮT BUỘC: `title`, `domain: <domain>`, `kind: source`, `sources`, `updated`, `status: active`, `confidence: unverified`.
+4. Viết summary page → `wiki/<domain>/source/<slug>.md` với frontmatter BẮT BUỘC: `title`, `domain: <domain>`, `kind: source`, `sources`, `updated`, `status: active`, `generated: {by: "<tool>/<model>", at: <ISO-8601 offset>}`.
+   - **KHÔNG set `verified`** — chờ human duyệt artifact (human chạy `llm-wiki verify <path> --by <id>`; cùng cơ chế cho personal + project, xem `_schema.md` Trust tier).
+   - **`sources:` khuyến nghị dạng list-of-dicts** + per-claim citation qua footnote `[^id]` kèm trích verbatim (xem `_schema.md`). Flat list vẫn hợp lệ (legacy).
    - **`sources:` field rule**:
-     - Có URL gốc (raw có `source: <url>`) → `sources: [<url>]`
-     - Không có URL → `sources: []`
+     - Có URL gốc (raw có `source: <url>`) → `resource: <url>`
+     - Không có URL → page source trong domain là provenance, `sources: []` hoặc list-of-dicts trỏ source page khác
      - KHÔNG ghi `raw/inbox/...` (staging, copied-state rule). `raw/` (ngoài inbox) cho phép.
    - **Body nên reference code paths** khi áp dụng: `src/auth/middleware.ts`, `tests/auth.test.ts`, etc. Dùng inline code hoặc wikilink `[[wiki/architecture/...]]`.
 5. Tạo/cập nhật entity + concept pages liên quan trong **cùng domain**, cross-link. 1 source thường chạm 5-10 page (project wiki thường focused hơn personal).
+   - **Chống fork**: trước khi tạo page mới, tra DB (`wiki_list` / `wiki_search`) page `status: planned` cùng chủ đề → có thì **update**, không create. Page hoàn chỉnh → `planned → active`.
+   - **Pins (`wiki/pins.yml`)**: pin `active` bám section của page cần sửa → KHÔNG ghi đè section đó. Nguồn mới mâu thuẫn pin → gap vào `wiki/alerts/` (`domain: alerts, kind: alert, status: open`), KHÔNG revert âm thầm.
    - **Project-specific kinds**:
      - `entity` — library/framework/tool/dependency. VD: `wiki/tech-stack/entity/react-query.md`.
      - `concept` — pattern/architecture/layer. VD: `wiki/architecture/concept/middleware-chain.md`.
@@ -43,7 +47,7 @@ Có source mới trong `<project>/project-wiki/raw/inbox/` — do human thả, `
    ```bash
    llm-wiki reindex
    ```
-   Idempotent — index `raw/**` + `wiki/**` vào `wiki/.wiki.db` + rebuild `rag/.rag_index/`. Bản dịch `*.lang.md` tự skip.
+   Mặc định **tăng dần theo content-hash** — chỉ file vừa tạo/sửa được index lại. Bản dịch `*.lang.md` tự skip. `--check` dry-run; `--full` khi đổi `chunk_tokens`/`embed_model`/`vector` trong `.llm-wiki.toml`.
 10. Move source:
     - Có URL trong `source` field → `mv <wiki_root>/raw/inbox/<name> <wiki_root>/raw/<name>` (local cache, giữ provenance).
     - Không có URL → `mv <wiki_root>/raw/inbox/<name> <wiki_root>/raw/<name>` (local cache, có thể xoá).

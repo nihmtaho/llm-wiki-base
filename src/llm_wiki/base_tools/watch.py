@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import json
 import time
 import glob
 import datetime
@@ -8,6 +9,7 @@ import datetime
 import db
 import search
 import lint as lintmod
+from config_file import get_config
 from embed import EmbedProvider
 from paths import WIKI_ROOT, RAW_INBOX, RAG_DIR, RAW_DIR, WIKI_DIR, WIKI_LOG_FILE, SKIP_DIRS
 
@@ -115,12 +117,50 @@ def run_lint(c):
     return lintmod.lint(c)
 
 
+def _review_due_msg():
+    """Trả message nếu review (skill) quá cadence [review].interval_days, None nếu chưa đến hạn."""
+    try:
+        cfg = get_config(WIKI_ROOT)
+        interval = int(cfg["review"].get("interval_days", 7))
+        if interval <= 0:
+            return None
+        state_fp = os.path.join(str(WIKI_ROOT), "wiki", ".review_state.json")
+        if not os.path.exists(state_fp):
+            return None
+        with open(state_fp, encoding="utf-8") as f:
+            last = json.load(f).get("last_run")
+        if not last:
+            return None
+        last_dt = datetime.datetime.fromisoformat(last)
+        if (datetime.datetime.now() - last_dt).days >= interval:
+            return f"overdue (>={interval} days, last run: {last})"
+    except Exception:
+        return None
+    return None
+
+
 def main():
     ingest_every = int(os.environ.get("WATCH_INGEST_SEC", "15"))
     lint_every = int(os.environ.get("WATCH_LINT_SEC", "3600"))
     reindex_every = int(os.environ.get("WATCH_REINDEX_SEC", "300"))
-    rag_every = int(os.environ.get("WATCH_RAG_SEC", "1800"))
-    prov = EmbedProvider()
+    rag_every = int(os.environ.get("WATCH_RAG_SEC", "600"))
+    cfg = get_config(WIKI_ROOT)
+    _r = cfg["retrieval"]
+    vector_on = bool(_r.get("vector", False))
+    if vector_on:
+        from config_file import effective
+        from embed import DEFAULT_MODEL
+
+        _model = str(
+            effective(
+                "WIKI_EMBED_MODEL",
+                (_r.get("index") or {}).get("embed_model") or None,
+                DEFAULT_MODEL,
+            )
+        )
+        prov = EmbedProvider(model=_model)
+    else:
+        prov = None
     c = _conn()
     print(
         f"[watch] inbox={RAW_INBOX} ingest={ingest_every}s reindex_wiki={reindex_every}s rag={rag_every}s lint={lint_every}s",
@@ -151,6 +191,9 @@ def main():
                     f"[lint] pages={rep['page_count']} orphans={len(rep['orphans'])} missing={len(rep['missing_file'])}",
                     flush=True,
                 )
+                due = _review_due_msg()
+                if due:
+                    print(f"[review] due — {due}", flush=True)
                 last_lint = now
         except Exception as e:
             print(f"[watch] error: {e}", flush=True)

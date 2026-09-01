@@ -22,7 +22,7 @@ Local-first. Python + SQLite (FTS5 BM25) + vector (fastembed on-device).
 | **Dùng cho** | Knowledge wiki cá nhân | Wiki cho project codebase |
 | **Init location** | In-place (cwd) | `<root>/<wiki-dir>/` subfolder |
 | **MCP** | Auto-install (centralized) | Auto-install (centralized) |
-| **Skills** | `llm-wiki-{ingest,query,lint,translate}` | `wiki-project-{research,plan,ingest,lint,mcp}` |
+| **Skills** | `llm-wiki-{ingest,query,lint,review,consolidate,translate}` | `wiki-project-{research,plan,ingest,lint,review,consolidate,mcp}` |
 | **Skill location** | `<wiki>/.agents/skills/` (per-wiki) | `<wiki>/.agents/skills/` (per-wiki) |
 
 2 base không xung đột — skill prefix khác nhau. MCP là centralized (`llm-wiki-base-mcp`),
@@ -110,6 +110,8 @@ my-wiki/                             # Per-wiki data (1 folder = 1 wiki)
 │   ├── llm-wiki-ingest/SKILL.md
 │   ├── llm-wiki-query/SKILL.md
 │   ├── llm-wiki-lint/SKILL.md
+│   ├── llm-wiki-review/SKILL.md
+│   ├── llm-wiki-consolidate/SKILL.md
 │   └── llm-wiki-translate/SKILL.md
 ├── raw/                             #   inbox/ + cache (gitignored, có thể xoá)
 ├── wiki/                            #   markdown + .wiki.db + .proposals/
@@ -117,10 +119,12 @@ my-wiki/                             # Per-wiki data (1 folder = 1 wiki)
 │   ├── log.md                       #     append-only reverse-chronological
 │   ├── .wiki.db                     #     SQLite + FTS5 search index
 │   ├── .proposals/                  #     staging cho human-gated edits
+│   ├── pins.yml                     #     sửa tay của human (survives regenerate, optional)
+│   ├── alerts/                      #     hàng đợi gap từ review skill (optional)
 │   └── <domain>/                    #     N domain, mỗi domain có index.md + entity/concept/source/task/
 ├── rag/.rag_index/                  #   chunk embeddings (binary, per-wiki)
-├── .env                             #   LLM_WIKI_BASE_DIR + embedding config
-└── .llm-wiki.toml                   #   translation config (optional)
+├── .env                             #   runtime paths (gitignored)
+└── .llm-wiki.toml                   #   behavior config: retrieval/review/lifecycle/lint/translate (commit)
 ```
 
 ---
@@ -172,9 +176,15 @@ Trong centralized MCP, dùng param `wiki=<name>` để target wiki, để trốn
 
 ```bash
 llm-wiki ingest raw/inbox/foo.md   # index 1 source vào search DB
-llm-wiki reindex                    # rebuild DB + RAG index
-llm-wiki lint                       # health check (orphan, broken link, stale)
-llm-wiki watch                      # daemon: scan inbox → ingest → reindex → lint
+llm-wiki reindex                    # index tăng dần theo content-hash
+llm-wiki reindex --check            # dry-run: báo sẽ index/xoá gì + config drift
+llm-wiki reindex --full             # rebuild toàn bộ (sau khi đổi embed_model/chunk_tokens/vector)
+llm-wiki lint                       # health check deterministic (orphan, broken link, frontmatter, ...)
+llm-wiki lint --fix                 # xoá dangling rows + thêm index entries (additive)
+llm-wiki config show                # xem effective config (defaults + TOML + env override)
+llm-wiki verify wiki/<domain>/concept/x.md --by <human-id>   # human duyệt (set verified)
+llm-wiki verify <path> --unverify   # xoá verified (hạ về unverified)
+llm-wiki watch                      # daemon: scan inbox → ingest → reindex → lint (+ nhắc review due)
 ```
 
 ### Translation
@@ -195,13 +205,17 @@ Skills được copy vào `<wiki>/.agents/skills/` khi init. AI tool load từ �
 | Skill | Base | Vai trò |
 |---|---|---|
 | `llm-wiki-ingest` | personal | Nạp source mới, auto-detect domain, cross-link, update index/log |
-| `llm-wiki-query` | personal | Search wiki, tổng hợp trả lời có cite |
-| `llm-wiki-lint` | personal | Health-check: orphan, broken link, stale, missing index |
+| `llm-wiki-query` | personal | Search wiki, tổng hợp trả lời có cite + trust tier flag |
+| `llm-wiki-lint` | personal | Health-check TẤT ĐỊNH: orphan, broken link, frontmatter, index sync |
+| `llm-wiki-review` | personal | Health-check SINH SINH: mâu thuẫn, stale, trust gap → `wiki/alerts/` |
+| `llm-wiki-consolidate` | personal | Gộp log/mẩu rải rác → concept canonical (additive, distill-verify) |
 | `llm-wiki-translate` | personal | Dịch page sang target lang (dùng LLM của AI tool) |
 | `wiki-project-research` | project | Research codebase bằng wiki (ưu tiên) + codegraph (fallback) |
 | `wiki-project-plan` | project | Plan mode workflow cho task lớn |
 | `wiki-project-ingest` | project | Nạp source vào project-wiki (tech doc, PR, architecture note) |
-| `wiki-project-lint` | project | Health-check + stale code reference detection |
+| `wiki-project-lint` | project | Health-check TẤT ĐỊNH + thu thập code path cho review |
+| `wiki-project-review` | project | Health-check SINH SINH: contradiction, stale code reference → `wiki/alerts/` |
+| `wiki-project-consolidate` | project | Gộp log/mẩu → concept canonical |
 
 **`--skills-target`:**
 - `universal` (default): `<wiki>/.agents/skills/` — AI tool universal scan.
@@ -227,6 +241,51 @@ Khi enabled, ingest skill tự gọi `llm-wiki-translate` skill cho mỗi page m
 llm-wiki translate enable --lang vi --lang ja
 llm-wiki translate check --lang vi   # verify đồng bộ (frontmatter keys + heading structure)
 ```
+
+---
+
+## Config (.llm-wiki.toml)
+
+Behavior config per-wiki, **commit** vào wiki repo (init tự tạo template). Precedence: env var > TOML > builtin default.
+
+```toml
+[retrieval]
+vector = false          # BM25-only mặc định; bật sau khi eval cho thấy recall tụt
+chunk_tokens = 512      # chunk theo section (~token*4 chars)
+top_n_final = 8
+relax_recall = true     # AND-match 0 kết quả → retry OR một lần (CJK-safe)
+
+[retrieval.index]
+embed_model = ""        # rỗng = builtin
+
+[review]
+interval_days = 7       # review skill chỉ chạy full khi quá mốc
+max_pages = 80
+
+[lifecycle]
+default_stale_after_days = 180
+
+[lint]
+banned_terms = []
+```
+
+Đổi `embed_model`/`chunk_tokens`/`vector` → chạy `llm-wiki reindex --full`. Runtime plumbing (đường dẫn) vẫn qua `.env` + env vars.
+
+---
+
+## Verify & trust tier
+
+Mỗi page có `generated: {by, at}` (ai sinh) và tùy chọn `verified: {by, at}`:
+
+- **unverified** — không có `verified` (mặc định khi AI viết).
+- **human-reviewed** — `verified.by = "human:<id>"`. Duyệt = set verified, dùng chung personal + project:
+
+```bash
+llm-wiki verify wiki/<domain>/concept/x.md --by <human-id>
+llm-wiki verify <path> --unverify   # hạ về unverified
+```
+
+AI KHÔNG tự set `verified`. Human sửa tay quan trọng → ghi vào `wiki/pins.yml` (claim + anchor heading) — ingest/consolidate không ghi đè section mà pin bám vào; mâu thuẫn → `wiki/alerts/`.
 
 ---
 

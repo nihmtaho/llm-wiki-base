@@ -99,17 +99,20 @@ def run(
         )
         console.print("  [green]✓[/green] .gitignore")
 
+    # 5b. .llm-wiki.toml (behavior config — commit vào wiki repo)
+    if template_exists("templates", "llm-wiki.toml") and not (cwd / ".llm-wiki.toml").exists():
+        (cwd / ".llm-wiki.toml").write_text(
+            read_template("templates", "llm-wiki.toml"), encoding="utf-8"
+        )
+        console.print("  [green]✓[/green] .llm-wiki.toml (wiki config — commit file này)")
+
     # 6. .env point to base dir (optional, for explicit override)
     if not (cwd / ".env").exists():
         env_content = (
             f"# Point to global llm-wiki-base runtime. Uncomment to override.\n"
             f"# LLM_WIKI_BASE_DIR={base_dir}\n\n"
             f"# Centralized MCP: server reads registry.toml từ base dir.\n"
-            f"# AI tool chỉ định wiki qua param `wiki=<name>` khi gọi MCP tools.\n\n"
-            f"# Embedding model + hybrid search weights (default OK)\n"
-            f"# WIKI_EMBED_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2\n"
-            f"# WIKI_BM25_WEIGHT=0.5\n"
-            f"# WIKI_VEC_WEIGHT=0.5\n"
+            f"# AI tool chỉ định wiki qua param `wiki=<name>` khi gọi MCP tools.\n"
         )
         (cwd / ".env").write_text(env_content, encoding="utf-8")
         console.print("  [green]✓[/green] .env (pointing to global base + MCP registry)")

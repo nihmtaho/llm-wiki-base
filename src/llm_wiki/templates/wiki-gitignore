@@ -9,9 +9,12 @@ raw/
 !raw/inbox/
 raw/inbox/
 
-# wiki db + proposals (generated)
+# wiki db + proposals + state files (generated)
 wiki/.wiki.db
 wiki/.proposals/
+wiki/.review_state.json
+wiki/.consolidate_state.json
+wiki/.index_meta.json
 
 # rag index (generated)
 rag/.rag_index/

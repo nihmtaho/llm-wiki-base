@@ -21,14 +21,22 @@ Có source mới trong `raw/inbox/` — do human thả, `scripts/extract_*.py` t
    - **Nếu chưa có** → tạo folder mới theo naming rule (kebab-case, lowercase, ASCII-safe).
    - **Tạo folder** `wiki/<domain>/` + tạo `wiki/<domain>/index.md` (rỗng, sẽ append ở bước 6).
 4. Viết summary page → `wiki/<domain>/source/<slug>.md`.
-   - **Frontmatter BẮT BUỘC**: `title`, `domain: <domain>`, `kind: source`, `sources`, `updated`, `status: active`. Khuyến nghị `confidence: unverified` (mặc định).
-   - **`sources:` field rule** (xem `_schema.md`):
-     - Có URL gốc (raw file có `source: <url>`) → `sources: [<url>]` (hoặc nhiều URL)
-     - Không có URL gốc → `sources: []`. Source page trong domain là provenance, không cần cite lại `raw/inbox/<name>` (staging, sẽ move) (copied-state rule).
-     - Concept/entity page tổng hợp từ nhiều source → `sources: [wiki/<domain>/source/<other>.md, ...]`
-     - **KHÔNG** ghi `raw/inbox/...` vào `sources:`. Inbox là staging, path có thể đổi → drift. `raw/` (ngoài inbox) là local cache do user quản lý, cho phép cite nếu user muốn.
-     - **KHÔNG** viết `[[raw/inbox/...]]` trong body — link local chỉ trong `sources:` frontmatter (cho inbox). `[[raw/...]]` (ngoài inbox) cho phép.
+   - **Frontmatter BẮT BUỘC**: `title`, `domain: <domain>`, `kind: source`, `sources`, `updated`, `status: active`, `generated: {by: "<tool>/<model>", at: <ISO-8601 offset>}`.
+   - **KHÔNG set `verified`** — chờ human duyệt artifact (human chạy `llm-wiki verify <path> --by <id>`; áp cả personal + project, xem `_schema.md` Trust tier).
+   - **`sources:` khuyến nghị dạng list-of-dicts** + per-claim citation (xem `_schema.md`):
+     ```yaml
+     sources:
+       - id: s1
+         resource: <url-hoặc-wiki-xref-hoặc-raw-path>
+         title: "..."
+     ```
+     Body cite claim: `Takeaway quan trọng.[^s1]` + footnote cuối file kèm **trích verbatim** từ raw.
+   - Flat list `sources: [<url>]` vẫn hợp lệ (legacy) khi page không cần per-claim citation.
+   - **KHÔNG** ghi `raw/inbox/...` vào `sources:`. Inbox là staging, path có thể đổi → drift. `raw/` (ngoài inbox) là local cache do user quản lý, cho phép cite nếu user muốn.
+   - **KHÔNG** viết `[[raw/inbox/...]]` trong body — link local chỉ trong `sources:` frontmatter (cho inbox). `[[raw/...]]` (ngoài inbox) cho phép.
 5. Tạo/cập nhật entity + concept pages liên quan trong **cùng domain**, cross-link `[[wiki/<domain>/...]]`. 1 source thường chạm 10-15 page.
+   - **Chống fork**: trước khi tạo page mới, tra DB (`wiki_list` / `wiki_search`) xem có page `status: planned` cùng chủ đề không → có thì **update**, không create. Page hoàn chỉnh thì `planned → active`.
+   - **Pins (`wiki/pins.yml`)**: nếu pin `status: active` bám vào section của page cần sửa → KHÔNG ghi đè section đó. Nguồn mới mâu thuẫn pin → ghi gap vào `wiki/alerts/` (frontmatter `domain: alerts, kind: alert, status: open`), KHÔNG revert âm thầm.
    - **Domain languages:** từ vựng và ngữ pháp trong source phải đưa vào wiki, không chỉ tóm tắt trong source page:
      - Ngữ pháp / mẫu câu → concept page riêng (`wiki/<domain>/concept/<pattern>.md`), 1 pattern = 1 page khi có thể.
      - Từ vựng → gom vào vocab page theo bài/chủ đề (`wiki/<domain>/vocab/<slug>.md`, bảng: từ · đọc · nghĩa · ví dụ) hoặc bổ sung vào entity/concept page có sẵn. Không để từ vựng nằm chết trong source page.
@@ -47,7 +55,7 @@ Có source mới trong `raw/inbox/` — do human thả, `scripts/extract_*.py` t
    ```bash
    llm-wiki reindex
    ```
-   Lệnh index `raw/**` + `wiki/**` vào `wiki/.wiki.db` và rebuild `rag/.rag_index/`. Bản dịch `*.lang.md` tự skip. KHÔNG qua MCP.
+   Mặc định **tăng dần theo content-hash** — chỉ file vừa tạo/sửa được index lại. Bản dịch `*.lang.md` tự skip. KHÔNG qua MCP. Dùng `llm-wiki reindex --check` để dry-run, `--full` khi đổi `chunk_tokens`/`embed_model`/`vector` trong `.llm-wiki.toml`.
 10. Move source:
     - Có URL trong `source` field → `mv <wiki_root>/raw/inbox/<name> <wiki_root>/raw/<name>` (local cache, giữ provenance).
     - Không có URL → `mv <wiki_root>/raw/inbox/<name> <wiki_root>/raw/<name>` (local cache, có thể xoá).
