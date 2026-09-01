@@ -1,0 +1,77 @@
+# wiki.config.toml — cấu hình LLM-Wiki. Nguồn sự thật vẫn là markdown; file này chỉ điều khiển hành vi.
+
+[wiki]
+profile = "codebase"        # codebase | personal
+lang    = "vi"              # ngôn ngữ agent viết concept
+
+# --- Danh mục theo profile (folder + type frontmatter route vào đó) ---
+[[category]]
+dir    = "requirements"     # profile: codebase
+type   = "Requirement"
+review = "human"            # human -> cần verified người · model -> máy confirm là đủ
+guide  = "Ý định sản phẩm, ràng buộc, open questions."
+
+[[category]]
+dir    = "decisions"
+type   = "Decision"
+review = "human"
+guide  = "ADR: quyết định, đánh đổi, phương án loại bỏ."
+
+[[category]]
+dir    = "modules"
+type   = "Reference"
+review = "model"
+guide  = "Kiến trúc & hành vi quan sát từ code (observation, không phải intent)."
+
+[[category]]
+dir    = "guides"
+type   = "Playbook"
+review = "model"
+guide  = "How-to, onboarding."
+
+[[category]]
+dir    = "alerts"
+type   = "Reference"
+review = "model"
+guide  = "Mâu thuẫn, open questions, gaps do review sinh ra."
+
+# --- Retrieval (hybrid; index là derived, gitignored) ---
+[retrieval]
+mode         = "hybrid"     # structural | bm25 | hybrid
+vector       = false        # BẬT sau khi eval cho thấy recall tụt (mặc định tắt)
+rerank       = "cross-encoder"  # off | cross-encoder | llm
+chunk_tokens = 512
+top_k_bm25   = 20
+top_k_vector = 20
+top_n_final  = 8            # số concept vào context sau rerank
+relax_recall = true         # AND-match 0 kết quả -> thử lại OR một lần (CJK-safe)
+
+[retrieval.index]
+path       = ".wiki-index/" # DERIVED — thêm vào .gitignore, KHÔNG commit
+embed_model = ""            # để trống = không embed; điền model local (ONNX) hoặc endpoint
+rebuild    = "on-ingest"    # on-ingest | on-demand | manual
+exclude    = ["footnotes", "frontmatter", "raw/**"]
+
+# --- Models (provider-agnostic; đổi sang model mới nhất khi có) ---
+[models]
+light = "claude-sonnet-5"   # WRITE: sinh concept
+heavy = "claude-opus-4-8"   # VERIFY/review: kiểm ngữ nghĩa (adversarial)
+
+# --- Review cadence (giữ chi phí gần 0 khi không đổi) ---
+[review]
+interval_days = 7           # review --if-due chỉ chạy khi quá mốc này
+max_pages     = 80          # cap input một pass; vượt -> chỉ recent + tag-neighbor
+
+# --- Lifecycle ---
+[lifecycle]
+default_stale_after_days = 180   # gợi ý stale_after khi tạo concept (0 = không set)
+
+# --- Private (index cho bạn nhưng không commit) ---
+[private]
+dirs = []                   # vd ["scratch", "personal-notes"]
+
+# --- Lint (advisory) ---
+[lint]
+banned_terms = []           # từ ngữ cảnh báo (không chặn)
+max_bullet_items = 3        # >3 mục dồn một dòng -> dense-bullet
+max_indent_depth = 3
