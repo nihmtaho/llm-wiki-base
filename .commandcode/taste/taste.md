@@ -1,0 +1,1 @@
+- Prefers Vietnamese for communication. Confidence: 0.8

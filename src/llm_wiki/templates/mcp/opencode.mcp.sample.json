@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "llm-wiki-mcp": {
+      "type": "local",
+      "command": ["python3", "tools/mcp_server.py"],
+      "cwd": ".",
+      "enabled": true,
+      "environment": {
+        "WIKI_EMBED_MODEL": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "WIKI_BM25_WEIGHT": "0.5",
+        "WIKI_VEC_WEIGHT": "0.5"
+      }
+    }
+  }
+}

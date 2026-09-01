@@ -1,0 +1,13 @@
+{
+  "context_servers": {
+    "llm-wiki-mcp": {
+      "command": ".venv/bin/python",
+      "args": ["tools/mcp_server.py"],
+      "env": {
+        "WIKI_EMBED_MODEL": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "WIKI_BM25_WEIGHT": "0.5",
+        "WIKI_VEC_WEIGHT": "0.5"
+      }
+    }
+  }
+}

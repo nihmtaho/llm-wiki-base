@@ -1,0 +1,23 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# raw/ — local cache, có thể xoá tùy ý (provenance nằm trong wiki sources: field)
+raw/
+!raw/.gitkeep
+!raw/inbox/
+raw/inbox/
+
+# wiki db + proposals (generated)
+wiki/.wiki.db
+wiki/.proposals/
+
+# rag index (generated)
+rag/.rag_index/
+
+# env
+.env
+
+# OS
+.DS_Store

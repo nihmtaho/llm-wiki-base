@@ -1,0 +1,23 @@
+# python
+__pycache__/
+*.pyc
+
+# venv cho dev local (nếu tạo venv ở repo root)
+.venv/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE / tool local state (per-user, never tracked)
+.obsidian/
+.serena/project.local.yml
+.serena/memories/
+.opencode/node_modules/
+.opencode/package.json
+.opencode/package-lock.json
+.opencode/cache/
+
+# OS
+.DS_Store

@@ -1,0 +1,9 @@
+views:
+  - type: table
+    name: Table
+    order: [file.name, file.tags, file.backlinks, file.ctime, file.folder, file.ext]
+  - type: cards
+    name: Cards
+    order: [file.name, file.folder, file.tags]
+    cardSize: 200
+    imageAspectRatio: 1
