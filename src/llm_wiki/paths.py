@@ -16,6 +16,7 @@ Env vars (override):
   ARCHIVED_DIR      — immutable sources without URL. Mặc định: <root>/archived.
   RAG_DIR           — semantic search module. Mặc định: <root>/rag.
   RAG_INDEX_DIR     — generated chunk embeddings. Mặc định: <RAG_DIR>/.rag_index.
+  EVAL_DIR          — eval harness (golden.toml + results.json). Mặc định: <root>/eval.
 """
 import os
 from pathlib import Path
@@ -52,6 +53,11 @@ RAW_INBOX: Path = _resolve("RAW_INBOX", RAW_DIR / "inbox")
 
 RAG_DIR: Path = _resolve("RAG_DIR", WIKI_ROOT / "rag")
 RAG_INDEX_DIR: Path = _resolve("RAG_INDEX_DIR", RAG_DIR / ".rag_index")
+
+# Eval harness: golden.toml COMMIT (đây KHÔNG phải dưới wiki/ — lint coi mọi
+# thư mục không-ẩn dưới wiki/ là một domain và sẽ báo domain-missing-index),
+# results.json gitignored.
+EVAL_DIR: Path = _resolve("EVAL_DIR", WIKI_ROOT / "eval")
 
 # Directories inside wiki/ or other top-levels that should be SKIPPED by
 # reindex/scan/lint (contain staging, generated artefacts, or hidden config).

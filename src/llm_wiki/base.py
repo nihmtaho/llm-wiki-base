@@ -64,6 +64,15 @@ def install_base(base_dir: Path | None = None, force: bool = False) -> Path:
             req_src.read_text(encoding="utf-8"), encoding="utf-8"
         )
 
+    # 2b. Copy các template mà tools/ runtime cần đọc khi chạy từ global base
+    # (`tools/eval.py --init`). Chỉ vài file — KHÔNG copy cả templates/ (agents
+    # md + mcp samples chỉ package side dùng).
+    for tpl in ("eval-golden.toml",):
+        src = package_path("templates", tpl)
+        if src.exists():
+            (base / "templates").mkdir(exist_ok=True)
+            shutil.copy2(src, base / "templates" / tpl)
+
     # 3. Create / reuse venv + pip install
     py_bin = ensure_venv(base, force=force)
     req = base / "requirements.txt"

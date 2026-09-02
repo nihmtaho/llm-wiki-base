@@ -1,15 +1,14 @@
-import re
 import sys
 import os
 
 import db
 import search
+from chunking import TRANSLATED_SUFFIX_RE
 from config_file import get_config, effective
 from embed import EmbedProvider, DEFAULT_MODEL
 
 # Skip translated files (song song EN source + bản dịch, bản dịch KHÔNG index).
-# Match <slug>.<lang>.md pattern (lang 2-3 chữ cái). Source EN không match.
-TRANSLATED_SUFFIX_RE = re.compile(r"\.[a-z]{2,3}\.md$")
+# Regex dùng chung với reindex/watch/chunk index (tools/chunking.py).
 
 
 def main():

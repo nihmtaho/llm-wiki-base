@@ -31,10 +31,14 @@ Nếu repo dùng template: `bash init.sh` thay cho 2 lệnh trên.
 
 ## Query
 
-- Hybrid: MCP `wiki_search(query, top_k=8)`. Filter `domain`/`kind` qua `wiki_list`.
-- Semantic chunk: `semantic_search(query, top_k=6)`. Cần build `rag/index.py` trước.
-- Cite nguồn: `[[wiki/<domain>/source/...]]` hoặc URL từ `sources:`.
-- Câu trả lời hay (synthesis, comparison) → file ngược thành page mới (compounding).
+1. **Union search**: MCP `wiki_search(query, top_k=16)` — 3 kênh (BM25 page ∪ BM25 chunk ∪ vector chunk) gộp bằng **RRF**. `top_k` ở đây chỉ là **số lượng bạn xin về**, không phải số page sẽ đọc.
+2. **Rerank bằng LLM** (`[retrieval].rerank = "llm"`): chấm qua `title` + `snippet` + `matched_by`, chọn `top_n_final` (mặc định 8) để mở. Không mở file lúc chấm.
+3. `wiki_read` các page đã chọn. `matched_by` nhiều kênh + `verified.by: human:*` = tin hơn.
+4. Semantic chunk thô: `semantic_search(query, top_k=6)` — chỉ để dò, **không trích chunk làm câu trả lời**.
+5. Filter `domain`/`kind` qua `wiki_list`.
+6. Cite nguồn: `[[wiki/<domain>/source/...]]` hoặc URL từ `sources:`.
+7. Câu trả lời hay (synthesis, comparison) → file ngược thành page mới (compounding).
+8. Retrieval có vẻ kém? `llm-wiki eval --compare` (đọc `eval/golden.toml`) — dùng số liệu, đừng đoán.
 
 ## Wikilink format
 
@@ -48,6 +52,7 @@ Nếu repo dùng template: `bash init.sh` thay cho 2 lệnh trên.
 llm-wiki lint          # deterministic checks + findings
 llm-wiki lint --fix    # xoá dangling rows + thêm index entries (additive)
 llm-wiki reindex       # tăng dần theo content-hash (--check dry-run, --full rebuild)
+llm-wiki eval --compare  # đo retrieval: P@k/R@k/MRR cho 3 profile (read-only)
 ```
 
 Lint (tất định): orphan, broken-wikilink, missing-file (CRITICAL), missing-frontmatter, status-vocab, timestamp-format, footnote-sources-match, stale-after-passed, missing-index-entry, pin-orphan, `sources-no-local-path`, `body-no-raw-inbox-wikilink`, dense-bullet/indent-depth/banned-terms (advisory).
@@ -71,8 +76,8 @@ human phải chỉ định wiki để contribute, MCP không tự chọn.
 
 | Tool | Vai trò |
 |---|---|
-| `wiki_search(query, top_k, wiki="")` | Hybrid BM25 + vector. `wiki=""` → all wikis |
-| `semantic_search(query, top_k, wiki="")` | Chunk-level vector (cần RAG index) |
+| `wiki_search(query, top_k, wiki="")` | Union retrieval (BM25 page ∪ BM25 chunk ∪ vector chunk) + RRF. Kết quả có `matched_by` + `rank`. `wiki=""` → all wikis |
+| `semantic_search(query, top_k, wiki="")` | Chunk-level vector thô (cần RAG index) — chỉ để dò concept |
 | `wiki_read(path, wiki="")` | Đọc file. `wiki=""` → tìm trong all wikis |
 | `wiki_list(domain, kind, category, wiki="")` | List pages, filter theo domain/kind |
 | `list_raw_source(subdir, wiki="")` | List raw sources |
@@ -101,19 +106,35 @@ Default on-device (no API): `sentence-transformers/paraphrase-multilingual-MiniL
 **Behavior config nằm ở `.llm-wiki.toml`** (wiki root, commit):
 ```toml
 [retrieval]
-vector = false          # BM25-only mặc định; bật sau khi eval cho thấy recall tụt
+fusion = "rrf"              # "weighted" = hành vi cũ (rollback + baseline A-B)
+chunk_bm25 = true           # kênh BM25 trên semantic chunks
+vector = false              # BM25-only mặc định; BẬT sau khi `llm-wiki eval --compare` cho thấy khá hơn
+rerank = "llm"              # skill layer rerank; "off" = dùng nguyên thứ tự RRF
 chunk_tokens = 512
-top_n_final = 8
-relax_recall = true     # AND-match 0 → retry OR một lần
+top_k_bm25 = 20             # ứng viên mỗi kênh text
+top_k_vector = 20           # ứng viên kênh vector
+top_n_final = 8             # kết quả cuối + budget đọc của skill
+relax_recall = true         # giữ nguyên → AND sanitize → OR
+
+[retrieval.weights]         # RRF chỉ nhạy tỉ số
+bm25_page = 1.0
+bm25_chunk = 1.0
+vector = 1.0
 
 [retrieval.index]
-embed_model = ""        # rỗng = builtin default
+embed_model = ""            # rỗng = builtin default
+
+[eval]
+k = 8                       # cutoff của `llm-wiki eval`
 ```
 
 Env override (ưu tiên cao hơn TOML):
 - `WIKI_EMBED_MODEL` — model name.
 - `WIKI_EMBED_DIM` — vector dim (default 384, phải match model).
-- `WIKI_BM25_WEIGHT`, `WIKI_VEC_WEIGHT` — hybrid search tuning (default 0.5/0.5).
+- `WIKI_FUSION` (`rrf`|`weighted`), `WIKI_CHUNK_BM25` (`0`/`false` để tắt).
+- `WIKI_BM25_WEIGHT`, `WIKI_VEC_WEIGHT` — chỉ chi phối khi `fusion = "weighted"` (RRF seed weight từ đây nhưng chỉ nhạy tỉ số).
 - `WIKI_DB` — SQLite path (default `<WIKI_ROOT>/wiki/.wiki.db`).
 
-Xem effective config: `llm-wiki config show`. Đổi `embed_model`/`chunk_tokens`/`vector` → chạy `llm-wiki reindex --full`.
+XEM EFFECTIVE CONFIG: `llm-wiki config show`. Đổi `embed_model`/`chunk_tokens`/`vector`/`fusion` → chạy `llm-wiki reindex --full`.
+
+**Nâng cấp wiki cũ**: `chunks_fts` là bảng mới → incremental reindex BỎ QUA page không đổi hash, nên phải `llm-wiki reindex --full` một lần, nếu không kênh `bm25_chunk` im lặng trống (search vẫn chạy, chỉ là thiếu một kênh).

@@ -19,6 +19,9 @@ wiki/.index_meta.json
 # rag index (generated)
 rag/.rag_index/
 
+# eval: results là derived (gitignored); golden.toml thì COMMIT
+eval/results.json
+
 # env
 .env
 

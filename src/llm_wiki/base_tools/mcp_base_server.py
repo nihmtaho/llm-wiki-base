@@ -37,7 +37,8 @@ if str(_TOOLS_DIR) not in sys.path:
 import db
 import lint as lintmod
 import search
-from embed import EmbedProvider
+from config_file import get_config, effective
+from embed import EmbedProvider, DEFAULT_MODEL
 
 # ── Registry ─────────────────────────────────────────────────────────────────
 _BASE_DIR = os.environ.get("LLM_WIKI_BASE_DIR") or os.path.expanduser("~/.llm-wiki-base")
@@ -59,15 +60,36 @@ log = logging.getLogger("llm-wiki-base-mcp")
 mcp = FastMCP("llm-wiki-base-mcp")
 SERVER_NAME = "llm-wiki-base-mcp"
 
-# Shared embed provider (lazy-load model once)
-_embed_provider: EmbedProvider | None = None
+# Embed provider cache, key = model name (lazy-load model 1 lần per model).
+_providers: dict[str, EmbedProvider] = {}
 
 
-def _provider() -> EmbedProvider:
-    global _embed_provider
-    if _embed_provider is None:
-        _embed_provider = EmbedProvider()
-    return _embed_provider
+def _wiki_embed_model() -> str:
+    """embed_model của wiki HIỆN tại trong ctx (`_set_wiki_ctx` đã đổi WIKI_ROOT).
+
+    Precedence env > TOML > builtin — phải resolve PER-CALL: model của wiki A
+    không được dùng để embed query cho wiki B.
+    """
+    try:
+        r = get_config(db.WIKI_ROOT).get("retrieval", {})
+        return str(
+            effective(
+                "WIKI_EMBED_MODEL",
+                (r.get("index") or {}).get("embed_model") or None,
+                DEFAULT_MODEL,
+            )
+        )
+    except Exception:
+        return DEFAULT_MODEL
+
+
+def _provider(model: str = "") -> EmbedProvider:
+    """EmbedProvider cho `model` (mặc định: model của wiki trong ctx hiện tại)."""
+    key = model or _wiki_embed_model()
+    prov = _providers.get(key)
+    if prov is None:
+        prov = _providers[key] = EmbedProvider(model=key)
+    return prov
 
 
 # ── Registry helpers ─────────────────────────────────────────────────────────
@@ -209,15 +231,21 @@ def wiki_log(name: str) -> str:
 
 @mcp.tool()
 def wiki_search(query: str, top_k: int = 8, wiki: str = "") -> list:
-    """Hybrid search (BM25 + vector cosine) trên wiki(ies).
+    """Union retrieval + RRF fusion (BM25 page ∪ BM25 chunk ∪ vector chunk).
 
     Args:
         query: câu hỏi/từ khóa tìm kiếm.
-        top_k: số kết quả tối đa (mỗi wiki).
+        top_k: số kết quả CUỐI cùng (toàn cục sau khi gộp các wiki). 0 = theo
+            `[retrieval].top_n_final` của wiki.
         wiki: tên wiki cụ thể trong registry. Rỗng = search ALL wikis.
 
-    Trả về list[{path, title, domain, kind, score, snippet, wiki}] sắp xếp theo score.
-    Kết quả được gán `wiki` = tên wiki nguồn để phân biệt.
+    Trả về list[{path, title, domain, kind, score, snippet, matched_by, rank, wiki}].
+    `score` là điểm RRF (Σ w/(k+rank)) — dùng để sắp thứ tự, KHÔNG phải độ tương
+    đồng tuyệt đối. `matched_by` liệt kê kênh đã tìm ra page (nhiều kênh = đáng
+    tin hơn). `snippet` có thể là text của một semantic chunk: đủ để CHỌN page,
+    KHÔNG đủ để trả lời — hãy `wiki_read` page đó.
+    Cross-wiki cũng gộp bằng RRF trên hạng-per-wiki (score wiki này không so sánh
+    được với wiki khác) và khử trùng theo (wiki, path).
     """
     if wiki:
         if not _wiki_entry(wiki):
@@ -228,40 +256,66 @@ def wiki_search(query: str, top_k: int = 8, wiki: str = "") -> list:
         if not wikis_to_search:
             return [_err("registry rỗng — chạy `llm-wiki init` để đăng ký wiki")]
 
-    all_results: list = []
-    provider = _provider()
+    by_key: dict[tuple, dict] = {}     # (wiki, path) -> result (đã khử trùng)
+    ranked_lists: list[tuple[str, list]] = []   # (wiki, [path...]) theo hạng per-wiki
+    errors: list = []
+    fuse_cfg = {"rrf_k": 60, "top_n_final": 8}
     for w in wikis_to_search:
+        name = w.get("name") or "?"
         try:
-            root, _ = _set_wiki_ctx(w["name"])
+            _set_wiki_ctx(name)
+            # provider resolve PER-WIKI: embed_model là chuyện riêng của từng wiki
+            provider = _provider()
             conn = db.get_conn(db.DB_PATH)
             db.init_db(conn)
-            results = search.hybrid_search(conn, query, top_k=top_k, provider=provider)
-            for r in results:
-                r["wiki"] = w["name"]
+            s = search._retrieval_settings()
+            fuse_cfg = {"rrf_k": s["rrf_k"], "top_n_final": s["top_n_final"]}
+            results = search.hybrid_search(
+                conn, query, top_k=(top_k or None), provider=provider, settings=s
+            )
             conn.close()
-            all_results.extend(results)
         except Exception as e:
-            log.exception("wiki_search failed for %s", w.get("name"))
-            all_results.append(_err(f"search error in '{w.get('name')}': {e}", wiki=w.get("name")))
+            log.exception("wiki_search failed for %s", name)
+            errors.append(_err(f"search error in '{name}': {e}", wiki=name))
+            continue
+        order = []
+        for r in results:
+            r["wiki"] = name
+            key = (name, r.get("path"))
+            if key not in by_key:          # khử trùng: giữ hạng tốt nhất
+                by_key[key] = r
+                order.append(key)
+        if order:
+            ranked_lists.append((name, order))
 
-    all_results.sort(
-        key=lambda x: x.get("score", 0) if isinstance(x.get("score", 0), (int, float)) else 0,
-        reverse=True,
-    )
-    return all_results[:top_k]
+    n_final = top_k if (top_k and top_k > 0) else fuse_cfg["top_n_final"]
+    # Hạng cross-wiki cũng fusion bằng RRF: mỗi wiki đóng góp 1 ranked list.
+    fused = search.rrf_fuse(ranked_lists, {}, fuse_cfg["rrf_k"])
+    ordered = sorted(fused.items(), key=lambda kv: (-kv[1], str(kv[0])))
+    merged = []
+    for rank, (key, score) in enumerate(ordered[:n_final], start=1):
+        row = by_key[key]
+        row["score"] = round(score, 6)
+        row["rank"] = rank
+        merged.append(row)
+    # `_err` dict không có path/score → luôn đặt CUỐI list, không tham gia sort
+    merged.extend(errors)
+    return merged
 
 
 @mcp.tool()
 def semantic_search(query: str, top_k: int = 6, wiki: str = "") -> list:
-    """Semantic chunk-level search (cần `rag/index.py` build trước).
+    """Semantic chunk-level search thô (cần `llm-wiki reindex` với vector=true).
 
     Args:
         query: câu hỏi.
         top_k: số kết quả.
         wiki: tên wiki. Rỗng = search ALL wikis (mỗi wiki cần có .rag_index).
 
-    Trả về list[{path, chunk, score, snippet, wiki}]. Wiki chưa build RAG index
-    sẽ bị bỏ qua (không lỗi).
+    Trả về list[{path, chunk, score, snippet, matched_by, wiki}]. Wiki chưa build
+    RAG index sẽ bị bỏ qua (không lỗi). `score` là cosine ∈ [-1,1] nên sắp thứ tự
+    cross-wiki ở đây hợp lệ (khác `wiki_search`).
+    Kết quả là CHUNK để tìm concept — đừng trích nó làm câu trả lời, hãy đọc page.
     """
     try:
         import numpy as np
@@ -277,26 +331,30 @@ def semantic_search(query: str, top_k: int = 6, wiki: str = "") -> list:
         if not wikis_to_search:
             return [_err("registry rỗng — chạy `llm-wiki init` để đăng ký wiki")]
 
-    provider = _provider()
     q_vec = None
+    q_model = ""
     all_results: list = []
 
     for w in wikis_to_search:
         try:
             root, _ = _set_wiki_ctx(w["name"])
-            index_dir = Path(root) / "rag" / ".rag_index"
+            index_dir = Path(search.rag_index_dir())   # per-call, tôn trọng env của wiki
             vectors_file = index_dir / "vectors.npy"
             chunks_file = index_dir / "chunks.json"
             if not vectors_file.exists() or not chunks_file.exists():
                 continue  # wiki chưa build RAG index — bỏ qua
+            provider = _provider()                     # model của wiki này, không phải wiki trước
+            model = _wiki_embed_model()
+            if model != q_model or q_vec is None:
+                q_vec = np.array(provider.embed([query])[0], dtype="float32")
+                q_vec = q_vec / (np.linalg.norm(q_vec) + 1e-9)
+                q_model = model
             arr = np.load(str(vectors_file))
             with open(chunks_file, encoding="utf-8") as f:
                 meta = json.load(f)
-            if q_vec is None:
-                q_vec = np.array(provider.embed([query])[0], dtype="float32")
-                q_vec /= np.linalg.norm(q_vec) + 1e-9
-            norms = np.linalg.norm(arr, axis=1) + 1e-9
-            sims = (arr / norms[:, None]) @ q_vec
+            if arr.size == 0 or not meta or len(meta) != len(arr):
+                continue
+            sims = (arr / (np.linalg.norm(arr, axis=1) + 1e-9)[:, None]) @ q_vec
             idx = sims.argsort()[::-1][:top_k]
             for i in idx:
                 all_results.append({
@@ -304,6 +362,7 @@ def semantic_search(query: str, top_k: int = 6, wiki: str = "") -> list:
                     "chunk": meta[i]["chunk"],
                     "score": round(float(sims[i]), 4),
                     "snippet": meta[i]["text"][:300],
+                    "matched_by": ["vector_chunk"],
                     "wiki": w["name"],
                 })
         except Exception as e:

@@ -10,7 +10,12 @@ Format:
 
     [retrieval]
     mode = "hybrid"
+    fusion = "rrf"
     vector = false
+    ...
+
+    [retrieval.weights]     # RRF weight per kênh
+    bm25_page = 1.0
     ...
 
 Sections không có trong file lấy từ `DEFAULTS`. Writer dùng `tomli-w`
@@ -36,15 +41,24 @@ DEFAULTS: dict = {
         "langs": [],
     },
     "retrieval": {
-        "mode": "hybrid",        # structural | bm25 | hybrid
-        "vector": False,         # BẬT sau khi eval cho thấy recall tụt
+        "mode": "hybrid",        # bm25 | hybrid (hybrid = thêm kênh vector khi vector=true)
+        "fusion": "rrf",         # rrf | weighted  (weighted = hành vi Tier 1, để rollback/A-B)
+        "rrf_k": 60,             # hằng số RRF; nhỏ hơn = ưu tiên hạng cao hơn
+        "chunk_bm25": True,      # kênh BM25 trên semantic chunks (cần `reindex --full` 1 lần)
+        "vector": False,         # BẬT sau khi `llm-wiki eval --compare` cho thấy recall tụt
+        "rerank": "llm",         # off | llm — SKILL layer đọc, Python không dùng
         "chunk_tokens": 512,     # chunk theo section ~ chunk_tokens*4 chars (approx)
-        "top_k_bm25": 20,
-        "top_k_vector": 20,
-        "top_n_final": 8,
+        "top_k_bm25": 20,        # số ứng viên mỗi kênh text (không phải kết quả cuối)
+        "top_k_vector": 20,      # số ứng viên kênh vector
+        "top_n_final": 8,        # số concept trả về cuối sau fusion
         "relax_recall": True,    # AND-match 0 kết quả -> thử lại OR một lần
-        "bm25_weight": 0.5,
-        "vec_weight": 0.5,
+        "bm25_weight": 0.5,      # chỉ chi phối khi fusion="weighted"; RRF seed cho 2 kênh text
+        "vec_weight": 0.5,       # chỉ chi phối khi fusion="weighted"; RRF seed cho kênh vector
+        "weights": {             # RRF weight per kênh (chỉ cần TỈ số)
+            "bm25_page": 1.0,
+            "bm25_chunk": 1.0,
+            "vector": 1.0,
+        },
         "index": {
             "embed_model": "",   # rỗng = builtin default
             "rebuild": "on-ingest",  # on-ingest | on-demand | manual
@@ -61,6 +75,11 @@ DEFAULTS: dict = {
         "banned_terms": [],
         "max_bullet_items": 3,
         "max_indent_depth": 3,
+    },
+    "eval": {
+        "k": 8,                            # cutoff mặc định của `llm-wiki eval`
+        "golden": "eval/golden.toml",      # query vàng — COMMIT
+        "results": "eval/results.json",    # lịch sử đo — gitignored
     },
 }
 

@@ -28,13 +28,16 @@ def centralized_server_cmd() -> list[str]:
 
 
 def centralized_server_env(base_dir: Path | None = None) -> dict:
-    """Build env dict cho centralized MCP server."""
+    """Build env dict cho centralized MCP server.
+
+    CHỈ đặt plumbing env. KHÔNG pin retrieval env (WIKI_BM25_WEIGHT /
+    WIKI_VEC_WEIGHT / WIKI_EMBED_MODEL): precedence là env > TOML, nên pin ở
+    đây làm `.llm-wiki.toml` của user bị vô hiệu riêng trong MCP process
+    (CLI vẫn tôn trọng) → cùng wiki, hai kết quả search khác nhau.
+    """
     bdir = base_dir or get_base_dir()
     return {
         "LLM_WIKI_BASE_DIR": str(bdir),
-        "WIKI_EMBED_MODEL": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-        "WIKI_BM25_WEIGHT": "0.5",
-        "WIKI_VEC_WEIGHT": "0.5",
     }
 
 

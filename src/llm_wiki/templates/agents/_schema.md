@@ -152,8 +152,14 @@ Reserve = tạo placeholder `status: planned` trước khi sinh nội dung; inge
 8. Move source: cả URL + no-URL đều → `raw/` (local cache). Phân biệt provenance chỉ trong `sources:` frontmatter.
 
 ### Query
-- Hỏi → search wiki (MCP `wiki_search` / `semantic_search` / đọc `index.md`) → tổng hợp + cite.
+- Hỏi → định tuyến `index.md` → `wiki_search` (union + RRF) → **rerank bằng LLM** (skill) → đọc `top_n_final` page → tổng hợp + cite.
 - Câu trả lời hay → file ngược thành page mới (compounding).
+
+### Eval (khi cần bằng chứng, không định kỳ)
+- `llm-wiki eval --compare` — đo retrieval trên bộ query vàng: P@k / R@k / MRR.
+- Query vàng ở `eval/golden.toml` (COMMIT — đây là dữ liệu, không phải config).
+- Kết quả đo ở `eval/results.json` (gitignored) kèm fingerprint config.
+- Eval **read-only**: không sửa markdown, không ghi `wiki/log.md`.
 
 ### MCP bridge (cho AI khác)
 - MCP = cầu nối: **chỉ đọc/tìm kiếm wiki** + **nạp context vào `raw/inbox/`** (`wiki_submit`).
@@ -165,9 +171,34 @@ Tìm: contradiction (report người), stale claim, orphan page, missing xref, b
 
 ## Search
 
+Markdown là nguồn sự thật; mọi chỉ mục (DB FTS, `rag/.rag_index/`) là **derived**,
+vứt đi rebuild được — KHÔNG commit.
+
 - Scale nhỏ: `index.md` đủ.
-- Lớn hơn: hybrid BM25 (FTS5) + vector (fastembed) qua `wiki_search`. Mỗi result có `domain`/`kind`.
-- Semantic chunk-level: `rag/index.py` → `rag/.rag_index/`, query `rag/search.py` hoặc MCP `semantic_search`.
+- **Union retrieval** (MCP `wiki_search` / `tools/search.py:hybrid_search`) — 3 kênh
+  xếp hạng độc lập rồi gộp bằng **RRF trên hạng** (không cộng thẳng score, vì bm25()
+  và cosine khác thang):
+  | kênh | hạ tầng | tắt khi |
+  |---|---|---|
+  | `bm25_page` | FTS5 `pages_fts` (wiki + raw) | FTS5 không có |
+  | `bm25_chunk` | FTS5 `chunks_fts` trong `.wiki.db` | `chunk_bm25=false` hoặc chưa `reindex --full` |
+  | `vector_chunk` | `rag/.rag_index/{chunks.json,vectors.npy}` | `vector=false`, chưa build, thiếu model |
+- Kết quả có `matched_by` (kênh nào tìm ra page) + `rank` + `snippet` (có thể là
+  **text của một chunk**) → đủ để CHỌN page, không đủ để trả lời.
+- **Chunk chỉ để tìm concept.** Câu trả lời trích từ concept đã biên dịch, cite
+  Concept path + `sources[].id` — giữ nguyên trust tier, không trích chunk thô.
+- Chunk = semantic section (theo heading, giữ heading làm ngữ cảnh), loại
+  frontmatter + footnote verbatim khỏi index. `index.md`/`log.md` (reserved) và
+  bản dịch `*.lang.md` **không** được chunk.
+- **Fallback tất định**: thiếu model/embeddings/chunk → chạy structural + BM25.
+  "Không model" ≠ "hỏng". Eval sẽ in `[ERROR] kênh bị tắt vì lỗi` nếu kênh chết
+  vì lỗi thật (khác "tắt vì cấu hình").
+- Ngưỡng: dưới ~100k token, BM25 đủ. Bật `vector = true` **chỉ khi**
+  `llm-wiki eval --compare` cho thấy recall/MRR cải thiện.
+- Config: `[retrieval]` trong `.llm-wiki.toml` (`mode`, `fusion`, `rrf_k`,
+  `chunk_bm25`, `vector`, `chunk_tokens`, `top_k_bm25`, `top_k_vector`,
+  `top_n_final`, `relax_recall`, `[retrieval.weights]`). `rerank` là hợp đồng của
+  **skill layer** (Python không đọc).
 
 ## Nguyên tắc an toàn
 - **AI proposes, human decides.** Re-derivable writes (index, log) tự làm. Asserting/irreversible → `wiki_propose_edit` staging, chờ sign-off.

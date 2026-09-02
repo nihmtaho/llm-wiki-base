@@ -8,15 +8,27 @@ enabled = false             # true → ingest tự gọi skill llm-wiki-translat
 langs = []                  # vd ["vi", "ja"]
 
 [retrieval]
-mode = "hybrid"             # structural | bm25 | hybrid
-vector = false              # BẬT sau khi eval cho thấy recall tụt (tắt = BM25-only, đủ dùng ở scale nhỏ)
+# Union retrieval: 3 kênh xếp hạng riêng → fusion. Xem `llm-wiki eval --compare`.
+mode = "hybrid"             # bm25 (chỉ kênh text) | hybrid (thêm kênh vector khi vector=true)
+fusion = "rrf"              # rrf (mặc định) | weighted (hành vi Tier 1 — dùng để rollback/A-B)
+rrf_k = 60                  # hằng số RRF; nhỏ hơn = ưu tiên hạng cao hơn mạnh hơn
+chunk_bm25 = true           # kênh BM25 trên semantic chunks. Wiki cũ: chạy `reindex --full` 1 lần
+vector = false              # BẬT sau khi `eval --compare` cho thấy recall tụt (mặc định tắt)
+rerank = "llm"              # off | llm — HỢP ĐỒNG SKILL LAYER (query/research), Python không đọc
 chunk_tokens = 512          # chunk theo section, ~chunk_tokens*4 chars (xấp xỉ token)
-top_k_bm25 = 20
-top_k_vector = 20
-top_n_final = 8             # số concept tối đa vào context sau khi merge
+top_k_bm25 = 20             # số ỨNG VIÊN mỗi kênh text (không phải kết quả cuối)
+top_k_vector = 20           # số ứng viên kênh vector
+top_n_final = 8             # số concept trả về cuối sau fusion — cũng là budget đọc của skill
 relax_recall = true         # AND-match 0 kết quả → thử lại OR một lần (CJK-safe)
-bm25_weight = 0.5           # env override: WIKI_BM25_WEIGHT
-vec_weight = 0.5            # env override: WIKI_VEC_WEIGHT
+bm25_weight = 0.5           # CHỈ chi phối khi fusion="weighted"; env override: WIKI_BM25_WEIGHT
+vec_weight = 0.5            # CHỈ chi phối khi fusion="weighted"; env override: WIKI_VEC_WEIGHT
+
+[retrieval.weights]
+# Weight mỗi kênh khi fusion="rrf". RRF chỉ nhạy TỈ số → 0.5/0.5 ≡ 1.0/1.0.
+# Bỏ trống = seed từ bm25_weight (2 kênh text) và vec_weight (kênh vector).
+bm25_page = 1.0
+bm25_chunk = 1.0
+vector = 1.0
 
 [retrieval.index]
 embed_model = ""            # rỗng = builtin (sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2); env override: WIKI_EMBED_MODEL
@@ -33,3 +45,8 @@ default_stale_after_days = 180   # gợi ý stale_after khi tạo concept (0 = k
 banned_terms = []           # từ ngữ cảnh báo (advisory, không chặn)
 max_bullet_items = 3        # >N mục dồn một dòng → dense-bullet finding
 max_indent_depth = 3
+
+[eval]
+k = 8                       # cutoff mặc định của `llm-wiki eval` (P@k / R@k / MRR)
+golden = "eval/golden.toml" # bộ query vàng — COMMIT file này vào wiki repo
+results = "eval/results.json"  # lịch sử đo — gitignored, không commit

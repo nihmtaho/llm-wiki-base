@@ -9,12 +9,12 @@ import datetime
 import db
 import search
 import lint as lintmod
+from chunking import TRANSLATED_SUFFIX_RE
 from config_file import get_config
 from embed import EmbedProvider
 from paths import WIKI_ROOT, RAW_INBOX, RAG_DIR, RAW_DIR, WIKI_DIR, WIKI_LOG_FILE, SKIP_DIRS
 
-# Skip bản dịch khi scan wiki (song song EN source, bản dịch KHÔNG index).
-TRANSLATED_SUFFIX_RE = re.compile(r"\.[a-z]{2,3}\.md$")
+# Regex dùng chung với ingest/reindex/chunk index (tools/chunking.py).
 
 WIKI_ROOT = str(WIKI_ROOT)
 RAW_INBOX = str(RAW_INBOX)

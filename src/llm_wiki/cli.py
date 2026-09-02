@@ -10,8 +10,9 @@ Subcommands:
     wiki add        — register a wiki manually
     wiki remove     — unregister a wiki
     ingest          — wrapper: gọi global tools/ingest.py với cwd context
-    reindex         — wrapper: rebuild search DB + RAG
-    lint            — wrapper: health check
+    reindex         — wrapper: rebuild search DB + RAG (--full | --check)
+    lint            — wrapper: health check (--fix để sửa an toàn)
+    eval            — wrapper: đo retrieval trên query vàng P@k/R@k/MRR (--compare)
     watch           — wrapper: daemon scan inbox + ingest + reindex
     translate add   — dịch wiki pages sang ngôn ngữ khác
     translate check — verify bản dịch đồng bộ với source
@@ -358,10 +359,44 @@ def reindex_cmd(
 
 @app.command("lint")
 def lint_cmd(
+    fix: bool = typer.Option(False, "--fix", help="Sửa an toàn: xoá dangling rows + thêm index entry còn thiếu."),
     root: Path = typer.Option(Path.cwd(), "--root", "-r", help="Wiki root (default: cwd)."),
 ) -> None:
     """Health-check wiki: orphan, broken link, missing file, stale claim."""
-    _run_base_tool("lint.py", ["--root", str(root)], root)
+    args = ["--root", str(root)]
+    if fix:
+        args.append("--fix")
+    _run_base_tool("lint.py", args, root)
+
+
+@app.command("eval")
+def eval_cmd(
+    k: int = typer.Option(0, "--k", help="Cutoff metric (mặc định: [eval].k, rồi top_n_final)."),
+    compare: bool = typer.Option(False, "--compare", help="So sánh profile tier1-weighted / rrf-text / rrf+vector."),
+    as_json: bool = typer.Option(False, "--json", help="In JSON thay vì bảng."),
+    init: bool = typer.Option(False, "--init", help="Tạo eval/golden.toml từ template."),
+    no_save: bool = typer.Option(False, "--no-save", help="Không append vào eval/results.json."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="In số liệu từng query."),
+    root: Path = typer.Option(Path.cwd(), "--root", "-r", help="Wiki root (default: cwd)."),
+) -> None:
+    """Đo chất lượng retrieval trên bộ query vàng (P@k / R@k / MRR).
+
+    Read-only với wiki: không sửa markdown, không ghi wiki/log.md.
+    """
+    args = []
+    if k:
+        args += ["--k", str(k)]
+    if compare:
+        args.append("--compare")
+    if as_json:
+        args.append("--json")
+    if init:
+        args.append("--init")
+    if no_save:
+        args.append("--no-save")
+    if verbose:
+        args.append("-v")
+    _run_base_tool("eval.py", args, root)
 
 
 @app.command("watch")
@@ -457,11 +492,37 @@ def translate_check(
 
 
 # Env override map cho các key đã migrate từ env vars.
+# Lưu ý: installer KHÔNG pin các env này trong MCP server entry nữa — pin ở đó
+# làm `.llm-wiki.toml` bị vô hiệu riêng trong MCP (env > TOML). Xem installer.py.
 _ENV_KEYS: dict[tuple[str, ...], str] = {
     ("retrieval", "bm25_weight"): "WIKI_BM25_WEIGHT",
     ("retrieval", "vec_weight"): "WIKI_VEC_WEIGHT",
+    ("retrieval", "fusion"): "WIKI_FUSION",
+    ("retrieval", "chunk_bm25"): "WIKI_CHUNK_BM25",
     ("retrieval", "index", "embed_model"): "WIKI_EMBED_MODEL",
 }
+
+# Env luôn là string; cast theo kiểu của builtin default để in ĐÚNG giá trị
+# hiệu lực (không chỉ dán nhãn [env ...] rồi in giá trị TOML/default).
+_ENV_CAST = {
+    "WIKI_BM25_WEIGHT": float,
+    "WIKI_VEC_WEIGHT": float,
+    "WIKI_CHUNK_BM25": lambda s: s.strip().lower() not in ("0", "false", "no", "off"),
+}
+
+
+def _env_effective(env_name: str, current):
+    """Giá trị thực sự được dùng khi env này đang set (mô phỏng config_file.effective)."""
+    raw = os.environ.get(env_name)
+    if raw is None or raw == "":
+        return current, False
+    cast = _ENV_CAST.get(env_name)
+    if cast is None:
+        return raw, True
+    try:
+        return cast(raw), True
+    except (ValueError, AttributeError):
+        return f"{raw} (không parse được)", True
 
 
 def _print_config(cfg: dict, raw: dict, prefix: str = "") -> None:
@@ -471,13 +532,17 @@ def _print_config(cfg: dict, raw: dict, prefix: str = "") -> None:
             console.print(f"[bold]{path}[/bold]")
             _print_config(v, raw.get(k, {}) if isinstance(raw.get(k), dict) else {}, path + ".")
             continue
-        if _ENV_KEYS.get(tuple(path.split("."))) and os.environ.get(_ENV_KEYS[tuple(path.split("."))]):
-            src = f"[yellow]env {_ENV_KEYS[tuple(path.split('.'))]}[/yellow]"
+        env_name = _ENV_KEYS.get(tuple(path.split(".")))
+        shown, from_env = (v, False)
+        if env_name:
+            shown, from_env = _env_effective(env_name, v)
+        if from_env:
+            src = f"[yellow]env {env_name}[/yellow]"
         elif k in raw:
             src = "[cyan]toml[/cyan]"
         else:
             src = "[dim]default[/dim]"
-        console.print(f"  {path} = {v!r}  {src}")
+        console.print(f"  {path} = {shown!r}  {src}")
 
 
 @config_app.command("show")

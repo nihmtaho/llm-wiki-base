@@ -10,6 +10,8 @@ Bạn là **wiki maintainer**. Con người cung cấp nguồn, câu hỏi, revi
 - `wiki/.proposals/` — staging cho human-gated edits (qua MCP `wiki_propose_edit`).
 - `wiki/alerts/` — hàng đợi gap từ review (mâu thuẫn, stale, trust gap, pin conflict) — pseudo-domain, frontmatter `domain: alerts, kind: alert, status: open|closed`.
 - `wiki/pins.yml` — sửa tay của human (claim + anchor), sống sót qua regenerate. Ingest/consolidate KHÔNG ghi đè section mà pin `active` bám vào.
+- `wiki/index.md` / `wiki/log.md` — **reserved names**: điều hướng + lịch sử. Vẫn là page (search được) nhưng **không bao giờ được chunk** (log.md append-only sẽ áp đảo kết quả tìm theo chunk).
+- `eval/golden.toml` — bộ query vàng để đo retrieval (`llm-wiki eval`). **Dữ liệu, COMMIT**. `eval/results.json` — lịch sử đo, gitignored.
 - `AGENTS.md` (file này) — schema: quy ước + workflow.
 
 **Provenance semantics (diverges từ Karpathy gist):**
@@ -63,8 +65,9 @@ Ví dụ path: `wiki/projects/task/2026-08-fix-auth.md`, `wiki/languages/vocab/m
 9. Move source: cả URL + no-URL đều → `raw/` (local cache). Phân biệt provenance chỉ trong `sources:` frontmatter.
 
 ### Query
-- Hỏi → search wiki (MCP `wiki_search` hoặc đọc `index.md`) → tổng hợp + cite.
+- Hỏi → định tuyến `index.md` → `wiki_search` (union + RRF, `top_k` rộng hơn `top_n_final`) → **rerank bằng LLM** rồi mở `top_n_final` page → tổng hợp + cite. Chi tiết: skill `llm-wiki-query`.
 - Câu trả lời hay (so sánh, phân tích, connection) → file ngược lại thành page mới.
+- Nghi ngờ chất lượng tìm kiếm → `llm-wiki eval --compare` (đọc `eval/golden.toml`).
 
 ### Lint (định kỳ — TẤT ĐỊNH)
 Chạy `llm-wiki lint` (wrapper gọi global `tools/lint.py`). Checks deterministic:
@@ -122,10 +125,15 @@ Translation tốn token — cảnh báo user nếu `langs` dài (>5) hoặc N so
 
 ## Search & retrieval config
 - Scale nhỏ: `index.md` đủ.
-- Lớn hơn: hybrid BM25 (FTS5) + vector (cosine) qua MCP `wiki_search`. Embedding on-device (fastembed), mặc định đa ngôn ngữ.
-- **Behavior config nằm ở `.llm-wiki.toml`** (wiki root, commit): `[retrieval]` (mode, `vector = false` mặc định — BM25-only vẫn chạy; bật vector sau khi eval cho thấy recall tụt), `chunk_tokens`, `top_k_*`, `top_n_final`, `relax_recall`, `[retrieval.index].embed_model`, `[review]`, `[lifecycle]`, `[lint]`. Env var override (`WIKI_BM25_WEIGHT`, `WIKI_VEC_WEIGHT`, `WIKI_EMBED_MODEL`).
+- **Union retrieval + RRF**: `wiki_search` chạy 3 kênh độc lập — `bm25_page` (FTS5 `pages_fts`), `bm25_chunk` (FTS5 `chunks_fts` trong `.wiki.db`), `vector_chunk` (`rag/.rag_index/`) — rồi gộp bằng **RRF trên hạng** (không cộng thẳng score). Mỗi kết quả có `matched_by` + `rank` + `snippet` (có thể là chunk text → đủ để CHỌN page, không đủ để trả lời).
+- **Rerank là việc của skill** (`llm-wiki-query` / `wiki-project-research`) khi `[retrieval].rerank = "llm"`: xin `top_k` rộng hơn (`2 × top_n_final`), chấm bằng title/snippet/matched_by, rồi mới mở `top_n_final` page. Không thêm reranker model vào code.
+- **Không chunk**: file reserved `index.md`/`log.md` (log.md append-only sẽ áp đảo kết quả) + bản dịch `*.lang.md` + frontmatter + footnote verbatim.
+- **Fallback tất định**: thiếu model / chưa build chunk → tự tắt từng kênh, vẫn chạy BM25. `fusion = "weighted"` = hành vi cũ (rollback 1 dòng, cũng là baseline để A-B).
+- **Đo trước khi bật vector**: `llm-wiki eval --compare` → P@k / R@k / MRR cho 3 profile. Query vàng ở `eval/golden.toml` (commit), kết quả ở `eval/results.json` (gitignored).
+- **Behavior config nằm ở `.llm-wiki.toml`** (wiki root, commit): `[retrieval]` (`mode`, `fusion`, `rrf_k`, `chunk_bm25`, `vector = false` mặc định, `rerank`, `chunk_tokens`, `top_k_bm25`, `top_k_vector`, `top_n_final`, `relax_recall`, `[retrieval.weights]`), `[eval]`, `[review]`, `[lifecycle]`, `[lint]`. Env override: `WIKI_BM25_WEIGHT`, `WIKI_VEC_WEIGHT`, `WIKI_FUSION`, `WIKI_CHUNK_BM25`, `WIKI_EMBED_MODEL` (installer KHÔNG pin chúng trong MCP entry nữa — pin ở đó làm TOML bị vô hiệu).
 - Xem effective config: `llm-wiki config show`.
-- Semantic chunk-level: `rag/index.py` build chỉ mục chunk wiki → `rag/.rag_index/` (tăng dần theo content-hash), query MCP `semantic_search`.
+- Semantic chunk-level vector: `rag/index.py` build `rag/.rag_index/` (tăng dần theo content-hash), query MCP `semantic_search`.
+- Wiki cũ nâng cấp lên bản có `chunks_fts`: chạy `llm-wiki reindex --full` một lần (không thì kênh `bm25_chunk` im lặng trống).
 
 ## MCP bridge (cho AI khác kết nối wiki)
 MCP = cầu nối, **KHÔNG** viết thẳng wiki:
@@ -137,7 +145,10 @@ MCP = cầu nối, **KHÔNG** viết thẳng wiki:
 ## Tooling
 - `scripts/` — extract nguồn: `extract_url.py` (trafilatura), `extract_pdf.py` (PyMuPDF), `extract_youtube.py`. Thả kết quả vào `raw/inbox/`, watch tự ingest.
 - `tools/paths.py` — central path constants. Mọi file trong `tools/` + `rag/` + `scripts/` import từ đây.
+- `tools/chunking.py` — semantic chunker **dùng chung** bởi chunk-BM25 (`chunks_fts`) và chunk-vector (`rag/.rag_index/`). 2 pipeline phải cùng ranh giới chunk thì RRF mới có nghĩa.
+- `tools/search.py` — union retrieval + RRF fusion + chunk sync (`sync_chunks`). Điểm duy nhất đọc config `[retrieval]` (per-call).
 - `tools/watch.py` — daemon: quét `raw/inbox/`, ingest, move sang `raw/`, định kỳ `wiki_lint`.
 - `tools/ingest.py <path>` — index 1 file thủ công.
-- `tools/reindex.py` — reindex DB + RAG **tăng dần theo content-hash**; `--full` rebuild toàn bộ; `--check` dry-run.
-- `rag/index.py` — build semantic index.
+- `tools/reindex.py` — reindex DB (kèm chunk) + RAG **tăng dần theo content-hash**; `--full` rebuild toàn bộ (cần 1 lần sau upgrade); `--check` dry-run.
+- `tools/eval.py` — đo retrieval trên query vàng: P@k / R@k / MRR, `--compare` nhiều profile. Read-only với wiki.
+- `rag/index.py` — build semantic chunk vector index.

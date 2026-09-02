@@ -309,6 +309,7 @@ def fix_missing_files(conn, wiki_root=None) -> list[str]:
             deleted.append(p["path"])
     conn.commit()
     conn.execute("DELETE FROM pages_fts WHERE rowid NOT IN (SELECT id FROM pages)")
+    conn.execute("DELETE FROM chunks_fts WHERE page_id NOT IN (SELECT id FROM pages)")
     conn.commit()
     return deleted
 

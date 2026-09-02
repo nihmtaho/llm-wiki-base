@@ -1,5 +1,4 @@
 import os
-import re
 import sys
 import glob
 import json
@@ -20,77 +19,21 @@ for _cand in ("tools", "base_tools"):
 from paths import WIKI_ROOT, WIKI_DIR, RAG_INDEX_DIR, SKIP_DIRS  # noqa: E402
 from config_file import get_config, effective  # noqa: E402
 from embed import DEFAULT_MODEL  # noqa: E402
+from chunking import (  # noqa: E402
+    TRANSLATED_SUFFIX_RE,
+    chunk_markdown,
+    is_reserved,
+)
 
-# Skip bản dịch khi build chunk index (song song EN source, bản dịch KHÔNG embed).
-TRANSLATED_SUFFIX_RE = re.compile(r"\.[a-z]{2,3}\.md$")
+# Chunker sống ở tools/chunking.py (dep-free) và DÙNG CHUNG với chunk-level BM25:
+# 2 pipeline phải cùng ranh giới chunk thì RRF fusion giữa kênh `bm25_chunk`
+# và `vector_chunk` mới có nghĩa. Alias `_chunk_markdown` giữ API cũ.
+_chunk_markdown = chunk_markdown
 
 INDEX_DIR = str(RAG_INDEX_DIR)
 VECTORS_FILE = os.path.join(INDEX_DIR, "vectors.npy")
 CHUNKS_FILE = os.path.join(INDEX_DIR, "chunks.json")
 META_FILE = os.path.join(INDEX_DIR, "index_meta.json")
-
-_FM_RE = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
-_FOOTNOTE_DEF_RE = re.compile(r"^\[\^[^\]]+\]\s*:")
-
-
-def _clean_body(text: str) -> str:
-    """Bỏ frontmatter + dòng footnote definition khỏi chunk index.
-
-    Footnote/bằng chứng verbatim và frontmatter thô không tốn recall budget.
-    """
-    text = _FM_RE.sub("", text, count=1)
-    lines = [ln for ln in text.split("\n") if not _FOOTNOTE_DEF_RE.match(ln)]
-    return "\n".join(lines)
-
-
-def _split_long(chunk: str, max_chars: int) -> list[str]:
-    """Cắt chunk quá dài theo ranh giới đoạn văn (sửa bug: max_chars trước đây bị bỏ qua)."""
-    if len(chunk) <= max_chars:
-        return [chunk]
-    out = []
-    buf = ""
-    for para in re.split(r"\n\s*\n", chunk):
-        cand = (buf + "\n\n" + para).strip() if buf else para
-        if buf and len(cand) > max_chars:
-            out.append(buf)
-            buf = para
-        else:
-            buf = cand
-    if buf:
-        out.append(buf)
-    return out or [chunk[:max_chars]]
-
-
-def _chunk_markdown(text, max_chars=2048):
-    """Chia theo heading, giữ context heading cha. Bỏ chunk quá ngắn."""
-    text = _clean_body(text)
-    chunks = []
-    lines = text.split("\n")
-    buf = []
-    cur_heading = ""
-
-    def flush():
-        nonlocal buf
-        if buf:
-            chunk = (cur_heading + "\n" + "\n".join(buf)).strip()
-            if len(chunk) > 80:
-                chunks.extend(_split_long(chunk, max_chars))
-            buf = []
-
-    for line in lines:
-        if line.startswith("#"):
-            flush()
-            cur_heading = line
-        else:
-            buf.append(line)
-    flush()
-    # nếu file không có heading, chunk theo đoạn
-    if not chunks:
-        for para in re.split(r"\n\s*\n", text):
-            para = para.strip()
-            if len(para) > 80:
-                chunks.extend(_split_long(para, max_chars))
-    return chunks
 
 
 def _file_hash(fp: str) -> str:
@@ -104,6 +47,9 @@ def _collect_files() -> list[tuple[str, str]]:
         rel = os.path.relpath(fp, str(WIKI_ROOT))
         parts = rel.split(os.sep)
         if any(s in SKIP_DIRS for s in parts):
+            continue
+        if is_reserved(rel):
+            # index.md / log.md là hạ tầng điều hướng + lịch sử, không phải concept.
             continue
         if TRANSLATED_SUFFIX_RE.search(os.path.basename(fp)):
             continue

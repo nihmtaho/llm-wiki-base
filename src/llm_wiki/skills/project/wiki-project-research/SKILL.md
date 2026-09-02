@@ -17,17 +17,27 @@ Mọi project codebase có 1 project wiki song song tại `<project>/project-wik
 ## Workflow
 
 1. **Đọc `<project>/project-wiki/wiki/index.md`** để biết có những domain nào (tech-stack, architecture, conventions, ...).
-2. **`wiki_search`** (MCP) với query liên quan — hybrid BM25 + vector (nếu `[retrieval].vector = false` trong `.llm-wiki.toml` → tự degrade BM25-only, vẫn chạy). AND-match 0 kết quả → tool tự retry OR (relax_recall).
-3. **Đọc relevant pages** (`wiki_read`) — note paths, conventions, gotchas. Đọc tối đa `[retrieval].top_n_final` concept (default 8). **Trust tier check** (cả personal + project): page `status: draft`/không `verified` → coi như unverified, cross-check với code trước khi tin; `stale_after` quá hạn → coi là stale; ưu tiên human-reviewed (`verified.by: human:*`).
-4. **Cross-check với code** qua `codegraph` (nếu có) — verify wiki vẫn còn đúng (không stale).
-5. **Update wiki** nếu phát hiện thiếu hoặc sai (qua `wiki_propose_edit`).
+2. **`wiki_search`** (MCP) — union retrieval: BM25 page ∪ BM25 chunk ∪ vector chunk, gộp bằng **RRF trên hạng**. Xin pool **rộng hơn** số cần đọc: `top_k = 2 × [retrieval].top_n_final` (config ở `.llm-wiki.toml`). `vector = false` → tự degrade sang 2 kênh text, vẫn chạy. Query không match AND → tool tự nới (AND sanitize → OR) khi `relax_recall = true`.
+3. **Rerank (skill làm)** — khi `[retrieval].rerank = "llm"`: chấm ứng viên chỉ bằng `title` + `snippet` + `matched_by` (KHÔNG mở file), rồi chọn đúng `top_n_final` page để đọc. Tiêu chí: (a) đúng chủ đề chứ không chỉ trùng từ; (b) `matched_by` nhiều kênh = đáng tin hơn; (c) trust tier — ưu tiên `verified.by: human:*`; (d) trùng chủ đề → giữ page canonical (`concept`, không phải `source`/`index`). `rerank = "off"` → giữ nguyên thứ tự RRF.
+4. **Đọc relevant pages** (`wiki_read`) — note paths, conventions, gotchas. **Trust tier check** (cả personal + project): page `status: draft`/không `verified` → coi như unverified, cross-check với code trước khi tin; `stale_after` quá hạn → coi là stale.
+5. **Cross-check với code** qua `codegraph` (nếu có) — verify wiki vẫn còn đúng (không stale).
+6. **Update wiki** nếu phát hiện thiếu hoặc sai (qua `wiki_propose_edit`).
+
+## Đo chất lượng retrieval
+
+`llm-wiki eval --compare` (chạy từ project-wiki dir) in P@k / R@k / MRR cho 3 profile
+`tier1-weighted` / `rrf-text` / `rrf+vector` — đó là **bằng chứng** để bật
+`[retrieval].vector`, không phải cảm giác. Query vàng ở `eval/golden.toml` (commit);
+kết quả đo ở `eval/results.json` (gitignored). Thêm query vàng từ các câu hỏi thật
+của dev trong phiên + `wiki/log.md`. `zero_recall_queries` = wiki thiếu tài liệu →
+việc của `wiki-project-ingest`, không phải của retriever.
 
 ## MCP tools (centralized — dùng `wiki` param để target project wiki)
 
 Centralized MCP server (`llm-wiki-base-mcp`) phục vụ toàn bộ wikis trên máy.
 Để target project wiki cụ thể, dùng param `wiki=<project-wiki-name>`:
 
-- `wiki_search(query, top_k=8, wiki="project-wiki")` — hybrid search trong project wiki. Để `wiki=""` để search all wikis (cross-scope).
+- `wiki_search(query, top_k=16, wiki="project-wiki")` — union retrieval + RRF trong project wiki; `top_k` là số ứng viên (rerank ở bước 3 mới cắt xuống `top_n_final`). Để `wiki=""` để search all wikis (cross-scope).
 - `wiki_read(path, wiki="project-wiki")` — đọc page (path relative to wiki root, vd `wiki/architecture/auth-flow.md`).
 - `wiki_list(domain, kind, wiki="project-wiki")` — list pages, filter theo domain/kind.
 - `semantic_search(query, wiki="project-wiki")` — chunk-level vector search (cần `rag/index.py` build).

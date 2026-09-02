@@ -5,28 +5,33 @@ Markdown là nguồn sự thật; index (DB + RAG) là derived, vứt đi rebuil
 Chế độ:
     reindex            — tăng dần (mặc định): chỉ xử lý file đổi/mới/xoá.
     reindex --full     — rebuild toàn bộ từ đầu (bỏ qua hash). Bắt buộc sau khi
-                         đổi embed_model/chunk_tokens/vector trong .llm-wiki.toml.
+                         đổi embed_model/chunk_tokens/vector trong .llm-wiki.toml,
+                         và 1 lần sau khi nâng cấp lên Tier 3 (bảng chunks_fts).
     reindex --check    — dry-run: báo sẽ index/xoá gì + config drift, KHÔNG ghi.
 
 Metadata drift: <WIKI_DIR>/.index_meta.json ghi embed_model/vector/chunk_tokens
 của lần reindex cuối — lệch config hiện tại → warning "chạy reindex --full".
+
+SCHEMA_VERSION 3: thêm bảng `chunks_fts` (BM25 chunk-level). Vì incremental bỏ
+qua page có content-hash không đổi, wiki cũ PHẢI chạy `reindex --full` một lần
+thì kênh bm25_chunk mới có dữ liệu — bump version để drift warning bắt buộc
+bước đó hiện ra ngay.
 """
 import argparse
 import glob
 import hashlib
 import json
 import os
-import re
 import sys
 
 import db
 import search
+from chunking import TRANSLATED_SUFFIX_RE
 from config_file import get_config, effective
 from embed import EmbedProvider, DEFAULT_MODEL
 from paths import WIKI_ROOT, WIKI_DIR, RAW_DIR, RAG_DIR, SKIP_DIRS
 
-# Skip bản dịch khi reindex (song song EN source, bản dịch KHÔNG vào DB).
-TRANSLATED_SUFFIX_RE = re.compile(r"\.[a-z]{2,3}\.md$")
+# Regex dùng chung với ingest/watch/chunk index (tools/chunking.py).
 
 # Load rag.index từ global base (RAG_DIR ở per-wiki chỉ chứa .rag_index/ data,
 # KHÔNG có code). Global base path derive từ LLM_WIKI_BASE_DIR hoặc default.
@@ -37,7 +42,7 @@ if _GLOBAL_RAG not in sys.path:
 import index as rag_index
 
 INDEX_META_FILE = os.path.join(str(WIKI_DIR), ".index_meta.json")
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3  # 3: thêm chunks_fts (BM25 chunk-level) — wiki cũ cần reindex --full
 
 
 def _current_settings() -> dict:
@@ -148,6 +153,17 @@ def main():
         print(f"[check] sẽ xoá stale rows: {len(stale)}")
         for p in stale[:20]:
             print(f"  - {p}")
+        n_chunks = search.chunk_count(c)
+        wiki_pages = c.execute(
+            "SELECT count(*) FROM pages WHERE path LIKE 'wiki/%'"
+        ).fetchone()[0]
+        if not n_chunks and wiki_pages:
+            print(
+                f"[check] chunk index CHƯA build (0 chunk / {wiki_pages} wiki page) — "
+                "kênh bm25_chunk đang tắt; chạy `llm-wiki reindex --full`"
+            )
+        else:
+            print(f"[check] chunk index: {n_chunks} chunk")
         if drift:
             print("[check] config drift (chạy `reindex --full` để rebuild):")
             for k, d in drift.items():
@@ -160,9 +176,14 @@ def main():
         search.index_file_at(c, fp, prov)
         n += 1
     for p in stale:
-        c.execute("DELETE FROM pages WHERE path=?", (p,))
+        # db.delete_page (không phải raw DELETE FROM pages) để dọn cả pages_fts
+        # và chunks_fts — nếu không chunk của page đã xoá vẫn được bm25_chunk trả về.
+        db.delete_page(c, p)
     c.commit()
-    print(f"wiki DB reindexed: {n} files indexed, removed {len(stale)} stale entries")
+    print(
+        f"wiki DB reindexed: {n} files indexed, removed {len(stale)} stale entries"
+        f", {search.chunk_count(c)} chunks trong chunks_fts"
+    )
 
     with open(INDEX_META_FILE, "w", encoding="utf-8") as f:
         json.dump(current, f, ensure_ascii=False, indent=2)
@@ -170,7 +191,8 @@ def main():
     if drift:
         print(
             "[warn] config đổi so với lần reindex trước — "
-            "chạy `llm-wiki reindex --full` để rebuild embeddings theo config mới"
+            "chạy `llm-wiki reindex --full` để rebuild embeddings + chunk index "
+            "theo config mới"
         )
 
     if not current["vector"]:

@@ -207,6 +207,15 @@ def _table_has_column(conn: sqlite3.Connection, table: str, column: str) -> bool
     return any(row["name"] == column for row in cur.fetchall())
 
 
+def table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    """Probe bảng có tồn tại không (search phải fallback tất định khi FTS5 thiếu)."""
+    cur = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = ?",
+        (table,),
+    )
+    return cur.fetchone() is not None
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
@@ -247,6 +256,19 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
     except sqlite3.OperationalError:
         pass
+    # Chunk-level FTS (Tier 3). KHÔNG dùng external-content: không có bảng nền,
+    # DELETE WHERE page_id là đủ và đúng — tránh hàng rào lệnh 'delete' cho từng
+    # chunk. Text được lưu trùng với pages.content (wiki cỡ vài MB, đổi lấy tính đúng).
+    # page_id/path UNINDEXED → SELECT thẳng từ kết quả MATCH, khỏi JOIN.
+    try:
+        conn.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts
+            USING fts5(text, path UNINDEXED, chunk_idx UNINDEXED, page_id UNINDEXED)
+            """
+        )
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
 
 
@@ -264,10 +286,20 @@ def upsert_page(
 ):
     """Upsert page. `category` legacy chỉ dùng cho row cũ — page mới truyền category=''."""
     emb = json.dumps(embedding) if embedding is not None else None
-    cur = conn.execute("SELECT id FROM pages WHERE path = ?", (path,))
+    cur = conn.execute("SELECT id, content, title FROM pages WHERE path = ?", (path,))
     row = cur.fetchone()
     if row:
         pid = row["id"]
+        # pages_fts là external-content → UPDATE ở bảng nền KHÔNG tự cập nhật FTS.
+        # Phải phát lệnh 'delete' với GIÁ TRỊ CŨ trước khi insert giá trị mới, nếu
+        # không cùng một rowid tích nhiều bộ token và bm25() rank trên duplicate.
+        try:
+            conn.execute(
+                "INSERT INTO pages_fts(pages_fts, rowid, content, title) VALUES('delete', ?, ?, ?)",
+                (pid, row["content"] or "", row["title"] or ""),
+            )
+        except sqlite3.OperationalError:
+            pass
         conn.execute(
             "UPDATE pages SET title=?, category=?, domain=?, kind=?, content=?, mtime=?, embedding=?, content_hash=? WHERE id=?",
             (title, category, domain, kind, content, mtime, emb, content_hash or "", pid),
@@ -292,6 +324,7 @@ def delete_page(conn, path):
     if not row:
         return
     conn.execute("DELETE FROM pages_fts WHERE rowid = ?", (row["id"],))
+    conn.execute("DELETE FROM chunks_fts WHERE page_id = ?", (row["id"],))
     conn.execute("DELETE FROM pages WHERE id = ?", (row["id"],))
     conn.commit()
 

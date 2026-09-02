@@ -58,8 +58,8 @@ Kết quả luôn được gán `wiki` field để AI biết nguồn gốc.
 
 ## MCP tools (centralized)
 
-- `wiki_search(query, top_k, wiki="")` — hybrid BM25 + vector. `wiki=""` → all wikis.
-- `semantic_search(query, top_k, wiki="")` — chunk-level vector. `wiki=""` → all wikis.
+- `wiki_search(query, top_k, wiki="")` — union retrieval (BM25 page ∪ BM25 chunk ∪ vector chunk) + **RRF fusion**; mỗi kết quả có `matched_by` (kênh nào tìm ra) + `rank`. `top_k` = số kết quả CUỐI, `0` = theo `[retrieval].top_n_final`. `wiki=""` → all wikis (gộp cross-wiki cũng bằng RRF trên hạng-per-wiki).
+- `semantic_search(query, top_k, wiki="")` — chunk-level vector thô (cần `vector = true` + reindex). `wiki=""` → all wikis. **Chỉ để tìm concept**, đừng trích chunk làm câu trả lời.
 - `wiki_read(path, wiki="")` — đọc file. `wiki=""` → tìm trong all wikis.
 - `wiki_list(domain, kind, category, wiki="")` — list pages. `wiki=""` → all wikis.
 - `list_raw_source(subdir, wiki="")` — list raw sources.

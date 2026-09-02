@@ -106,6 +106,18 @@ def run(
         )
         console.print("  [green]✓[/green] .llm-wiki.toml (wiki config — commit file này)")
 
+    # 5c. eval/golden.toml — bộ query vàng cho `llm-wiki eval` (commit vào wiki repo)
+    if template_exists("templates", "eval-golden.toml"):
+        golden = cwd / "eval" / "golden.toml"
+        if not golden.exists():
+            golden.parent.mkdir(parents=True, exist_ok=True)
+            golden.write_text(
+                read_template("templates", "eval-golden.toml"), encoding="utf-8"
+            )
+            console.print("  [green]✓[/green] eval/golden.toml (query vàng — thay bằng query thật)")
+        else:
+            console.print("  [dim]eval/golden.toml đã tồn tại — giữ nguyên[/dim]")
+
     # 6. .env point to base dir (optional, for explicit override)
     if not (cwd / ".env").exists():
         env_content = (

@@ -24,8 +24,12 @@ except ImportError:
             "langs": [],
         },
         "retrieval": {
-            "mode": "hybrid",
+            "mode": "hybrid",            # bm25 | hybrid
+            "fusion": "rrf",             # rrf | weighted (weighted = hành vi Tier 1)
+            "rrf_k": 60,
+            "chunk_bm25": True,
             "vector": False,
+            "rerank": "llm",             # off | llm — skill layer đọc, Python không dùng
             "chunk_tokens": 512,
             "top_k_bm25": 20,
             "top_k_vector": 20,
@@ -33,6 +37,11 @@ except ImportError:
             "relax_recall": True,
             "bm25_weight": 0.5,
             "vec_weight": 0.5,
+            "weights": {
+                "bm25_page": 1.0,
+                "bm25_chunk": 1.0,
+                "vector": 1.0,
+            },
             "index": {
                 "embed_model": "",
                 "rebuild": "on-ingest",
@@ -49,6 +58,11 @@ except ImportError:
             "banned_terms": [],
             "max_bullet_items": 3,
             "max_indent_depth": 3,
+        },
+        "eval": {
+            "k": 8,
+            "golden": "eval/golden.toml",
+            "results": "eval/results.json",
         },
     }
 

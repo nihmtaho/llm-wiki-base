@@ -28,4 +28,5 @@ except ImportError:
     RAW_INBOX: Path = _resolve("RAW_INBOX", RAW_DIR / "inbox")
     RAG_DIR: Path = _resolve("RAG_DIR", WIKI_ROOT / "rag")
     RAG_INDEX_DIR: Path = _resolve("RAG_INDEX_DIR", RAG_DIR / ".rag_index")
+    EVAL_DIR: Path = _resolve("EVAL_DIR", WIKI_ROOT / "eval")
     SKIP_DIRS: frozenset[str] = frozenset({".proposals", ".rag_index", ".obsidian"})
