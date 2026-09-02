@@ -16,10 +16,11 @@
     --line:       oklch(0.88 0.008 85);
     --ink:        oklch(0.28 0.015 75);
     --ink-2:      oklch(0.45 0.015 75);
-    --ink-3:      oklch(0.62 0.012 75);
+    --ink-3:      oklch(0.54 0.012 75);   /* 4.84:1 trên paper — caption/kbd/eyebrow */
 
     --c-data:     oklch(0.55 0.090 185);  /* markdown = nguồn sự thật */
-    --c-derived:  oklch(0.60 0.110 70);   /* chỉ mục derived, vứt được */
+    --c-derived:  oklch(0.56 0.110 70);   /* chỉ mục derived, vứt được — 4.58:1 khi
+                                             làm chữ (.tag); tint nền giữ L cao hơn */
     --c-engine:   oklch(0.47 0.055 250);  /* CLI/MCP/search: tất định */
     --c-human:    oklch(0.50 0.155 20);   /* quyền quyết định của người */
     --c-data-bg:    oklch(0.55 0.090 185 / 0.10);
@@ -53,7 +54,10 @@
     font: 400 16px/1.6 var(--ui);
     font-feature-settings: "kern", "liga";
   }
-  .wrap { max-width: 1120px; margin: 0 auto; padding: calc(var(--u)*9) calc(var(--u)*5) calc(var(--u)*18); }
+  /* 1440px: node 7 cột ~168px thay vì 140px — chính chiều rộng này quyết định
+     dòng phụ có đọc được hay không. Column CHỮ vẫn hẹp (masthead 1120,
+     .r-body 66ch, prose 70ch) nên measure đọc không bị phá. */
+  .wrap { max-width: 1440px; margin: 0 auto; padding: calc(var(--u)*9) calc(var(--u)*5) calc(var(--u)*18); }
 
   header.masthead { border-block-end: 1px solid var(--line); padding-block: calc(var(--u)*10) calc(var(--u)*7); }
   .masthead-in { max-width: 1120px; margin: 0 auto; padding-inline: calc(var(--u)*5);
@@ -94,13 +98,17 @@
   :is(button, a, select, [tabindex]):focus-visible { outline: none; box-shadow: var(--focus); }
 
   /* ── Stage ── */
-  .stage-shell { position: relative; margin-block: calc(var(--u)*7); border: 1px solid var(--line);
-                 border-radius: calc(var(--r)*1.5); background: var(--paper-sunk); overflow: hidden; }
+  .stage-shell { position: relative; margin-block: calc(var(--u)*7) calc(var(--u)*2);
+                 border: 1px solid var(--line); border-radius: calc(var(--r)*1.5);
+                 background: var(--paper-sunk); overflow: hidden; }
   canvas { display: block; width: 100%; height: 100%; touch-action: pan-y; }
-  .stage-hint { position: absolute; inset-block-start: calc(var(--u)*3); inset-inline-end: calc(var(--u)*3);
-                font: 500 11px/1.3 var(--mono); letter-spacing: .04em; color: var(--ink-3);
-                background: var(--paper); border: 1px solid var(--line); border-radius: 99px;
-                padding: 6px 10px; pointer-events: none; }
+  /* Caption DƯỚI canvas, không phải overlay: bản overlay từng đè lên node
+     pages_fts ở góc phải trên và không có cách nào tránh mọi breakpoint. */
+  .stage-caption { display: flex; flex-wrap: wrap; gap: calc(var(--u)*2) calc(var(--u)*4);
+                   align-items: baseline; padding-block: calc(var(--u)*2.5) calc(var(--u)*4);
+                   font: 500 11.5px/1.4 var(--mono); letter-spacing: .03em; color: var(--ink-3); }
+  .stage-caption kbd { font: inherit; background: var(--paper); border: 1px solid var(--line);
+                       border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; color: var(--ink-2); }
   .tooltip {
     position: absolute; z-index: 3; max-width: 34ch; pointer-events: none; opacity: 0;
     transform: translateY(4px); transition: opacity 120ms, transform 120ms;
@@ -113,7 +121,12 @@
 
   /* ── Stepper ── */
   .stepper { display: flex; gap: calc(var(--u)*2); overflow-x: auto; padding: calc(var(--u)*3) 0;
-             scroll-snap-type: x proximity; scrollbar-width: thin; }
+             scroll-snap-type: x proximity; scrollbar-width: thin;
+             /* Mask fade: bản thân thanh cuộn mảnh không báo gì ở desktop, người
+                đọc không biết còn chip bị cắt. Fade ở mép phải tự nói điều đó. */
+             mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 56px), transparent);
+             -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 56px), transparent); }
+  .stepper[data-end="1"] { mask-image: none; -webkit-mask-image: none; }
   .chip {
     scroll-snap-align: start; flex: 0 0 auto; font: 500 13px/1 var(--ui);
     border: 1px solid var(--line); background: var(--paper); color: var(--ink-2);
@@ -121,10 +134,13 @@
     min-height: 44px; display: inline-flex; align-items: center; gap: calc(var(--u)*2);
     transition: color 150ms, border-color 150ms, background 150ms;
   }
-  .chip .n { font: 600 11px/1 var(--mono); opacity: .65; }
+  /* Số thứ tự dùng MÀU ĐẶC, không dùng opacity: `opacity: .65` trên --ink-2
+     cho tương phản thực 3.11:1 (axe bắt được) trong khi bản thân --ink-2 đạt
+     7.17 — opacity làm hỏng số đo mà kẻ nhìn CSS không thấy. */
+  .chip .n { color: var(--ink-3); }
+  .chip[aria-current="step"] .n { color: var(--paper); }
   .chip:hover { border-color: var(--ink-3); }
   .chip[aria-current="step"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
-  .chip[aria-current="step"] .n { opacity: .8; }
 
   /* ── Readout ── */
   .readout { display: grid; gap: calc(var(--u)*5); grid-template-columns: minmax(0,1fr);
@@ -230,9 +246,13 @@
     <canvas id="flow" role="img"
       aria-label="Sơ đồ dòng chảy llm-wiki: raw/inbox → ingest skill → wiki pages → ba chỉ mục derived → wiki_search → RRF → rerank → trả lời có cite, với cổng human review cho proposal.">
     </canvas>
-    <span class="stage-hint" aria-hidden="true">click node · ←/→ bước · space chạy/dừng</span>
     <div class="tooltip" id="tip" role="status" aria-live="off"></div>
   </div>
+  <p class="stage-caption">
+    <span>Bấm node để nhảy tới bước</span>
+    <span><kbd>←</kbd> <kbd>→</kbd> đổi bước · <kbd>space</kbd> chạy/dừng</span>
+    <span>Nét đứt = bước cần LLM</span>
+  </p>
 
   <nav class="stepper" id="stepper" aria-label="Các bước trong luồng"></nav>
 
@@ -303,32 +323,43 @@
 
 const ROLE = { data: "data", derived: "derived", engine: "engine", human: "human" };
 
-/* Node: `wide` = (col,row) trên lưới 7×7 desktop. `slot` = số thứ tự trong
-   chuỗi đọc khi xếp cột đơn (mọi breakpoint hẹp) — đọc từ trên xuống đúng
-   trình tự dữ liệu, không phải toạ độ. */
+/* Node: `wide` = (col,row) trên lưới desktop 7 cột × 5 hàng — 5 hàng là cố ý:
+   hàng 6 từng bị bỏ trống tạo một dải chết giữa sơ đồ. Mỗi hàng là một lớp
+   (0–2 nguồn vào · 1–2 wiki+index · 3 retrieval · 4 cổng người).
+   `slot` = thứ tự trong chuỗi đọc khi xếp 2 cột (mọi breakpoint hẹp). */
 const NODES = [
   { id: "human",   label: "Người thả nguồn",       sub: "file · URL · YouTube",   role: ROLE.human,  skill: false, wide: [0,0], slot: 0, modes: "*" },
-  { id: "extract", label: "extract_url/pdf/youtube", sub: "scripts/ trong base",   role: ROLE.engine, skill: false, wide: [0,1], slot: 1, modes: "*" },
+  { id: "extract", label: "scripts/extract_*",     sub: "url · pdf · youtube",    role: ROLE.engine, skill: false, wide: [0,1], slot: 1, modes: "*" },
   { id: "submit",  label: "wiki_submit (MCP)",      sub: "AI khác nạp, bắt buộc wiki=", role: ROLE.engine, skill: false, wide: [0,2], slot: 2, modes: "*" },
   { id: "inbox",   label: "raw/inbox/",             sub: "staging, chờ ingest",    role: ROLE.data,   skill: false, wide: [1,1], slot: 3, modes: "*" },
-  { id: "ingest",  label: "skill llm-wiki-ingest",  sub: "đọc · tóm tắt · chọn domain", role: ROLE.data, skill: true, wide: [2,1], slot: 4, modes: "*" },
-  { id: "verifycode", label: "verify code path",    sub: "grep/codegraph trước khi ghi", role: ROLE.human, skill: true, wide: [2,3], slot: 5, modes: "project" },
+  { id: "ingest",  label: "skill llm-wiki-ingest",  sub: "đọc · tóm tắt · domain", role: ROLE.data, skill: true, wide: [2,1], slot: 4, modes: "*" },
+  { id: "verifycode", label: "verify code path",    sub: "grep/codegraph confirm", role: ROLE.human, skill: true, wide: [2,2], slot: 5, modes: "project" },
   { id: "pages",   label: "wiki/<domain>/*.md",     sub: "source · entity · concept", role: ROLE.data, skill: false, wide: [3,1], slot: 6, modes: "*" },
   { id: "catalog", label: "index.md + log.md",      sub: "re-derivable → tự ghi",  role: ROLE.data,   skill: false, wide: [3,2], slot: 7, modes: "*" },
   { id: "reindex", label: "llm-wiki reindex",       sub: "content-hash, tăng dần", role: ROLE.engine, skill: false, wide: [4,1], slot: 8, modes: "*" },
   { id: "pfts",    label: "pages_fts",              sub: "BM25 cấp page",          role: ROLE.derived, skill: false, wide: [5,0], slot: 9, modes: "*" },
   { id: "cfts",    label: "chunks_fts",             sub: "BM25 cấp chunk",         role: ROLE.derived, skill: false, wide: [5,1], slot: 10, modes: "*" },
-  { id: "vectors", label: ".rag_index/*.npy",       sub: "vector (fastembed)",     role: ROLE.derived, skill: false, wide: [5,2], slot: 11, modes: "*" },
-  { id: "ask",     label: "Câu hỏi",                sub: "trong AI tool",          role: ROLE.human,  skill: false, wide: [1,4], slot: 12, modes: "*" },
-  { id: "search",  label: "wiki_search (MCP)",      sub: "pool = 2 × top_n_final", role: ROLE.engine, skill: false, wide: [3,4], slot: 13, modes: "*" },
-  { id: "rrf",     label: "RRF trên hạng",          sub: "3 kênh → 1 thứ tự",      role: ROLE.engine, skill: false, wide: [4,4], slot: 14, modes: "*" },
-  { id: "rerank",  label: "skill rerank + query",   sub: "title/snippet/matched_by", role: ROLE.data, skill: true, wide: [5,4], slot: 15, modes: "*" },
-  { id: "answer",  label: "Trả lời + cite",         sub: "flag unverified / stale", role: ROLE.data,   skill: true,  wide: [6,4], slot: 16, modes: "*" },
-  { id: "proposal", label: "wiki/.proposals/",      sub: "staging, có metadata",   role: ROLE.human, skill: false, wide: [5,6], slot: 17, modes: "*" },
-  { id: "apply",   label: "proposals apply",        sub: "→ verify --by <bạn>",    role: ROLE.human, skill: false, wide: [3,6], slot: 18, modes: "*" },
-  { id: "pins",    label: "pins.yml · alerts/",     sub: "sửa tay sống qua regenerate", role: ROLE.human, skill: false, wide: [1,6], slot: 19, modes: "*" },
-  { id: "root",    label: "llm-wiki-research",      sub: "xuyên N wiki, chỉ staging", role: ROLE.engine, skill: true, wide: [6,2], slot: 20, modes: "project" },
+  { id: "vectors", label: "vectors.npy",            sub: "rag/.rag_index/",        role: ROLE.derived, skill: false, wide: [5,2], slot: 11, modes: "*" },
+  { id: "ask",     label: "Câu hỏi",                sub: "trong AI tool",          role: ROLE.human,  skill: false, wide: [1,3], slot: 12, modes: "*" },
+  { id: "root",    label: "llm-wiki-research",      sub: "xuyên N wiki, chỉ staging", role: ROLE.engine, skill: true, wide: [2,3], slot: 13, modes: "project" },
+  { id: "search",  label: "wiki_search (MCP)",      sub: "pool = 2 × top_n_final", role: ROLE.engine, skill: false, wide: [3,3], slot: 14, modes: "*" },
+  { id: "rrf",     label: "RRF trên hạng",          sub: "3 kênh → 1 thứ tự",      role: ROLE.engine, skill: false, wide: [4,3], slot: 15, modes: "*" },
+  { id: "rerank",  label: "skill rerank + query",   sub: "title/snippet/matched_by", role: ROLE.data, skill: true, wide: [5,3], slot: 16, modes: "*" },
+  { id: "answer",  label: "Trả lời + cite",         sub: "flag unverified / stale", role: ROLE.data,   skill: true,  wide: [6,3], slot: 17, modes: "*" },
+  { id: "pins",    label: "pins.yml · alerts/",     sub: "sửa tay sống qua regenerate", role: ROLE.human, skill: false, wide: [1,4], slot: 18, modes: "*" },
+  { id: "apply",   label: "proposals apply",        sub: "→ verify --by <bạn>",    role: ROLE.human, skill: false, wide: [3,4], slot: 19, modes: "*" },
+  { id: "proposal", label: "wiki/.proposals/",      sub: "staging, có metadata",   role: ROLE.human, skill: false, wide: [5,4], slot: 20, modes: "*" },
 ];
+
+/* Project mode: node nào nằm trong repo, và ở TẦNG NÀO của repo. Hai nhãn tách
+   bạch là cố ý — đây chính là điểm dễ hiểu sai nhất của project wiki: skill
+   vận hành một wiki nằm trong `<wiki-dir>/`, còn `llm-wiki-research` nằm ở repo
+   root vì nó cần thấy mọi wiki. `catalog` không được tag: nó là một phần của
+   `pages`, tag cả hai là lặp thông tin. */
+const REPO_SCOPE = {
+  inbox: "wiki dir", pages: "wiki dir", pins: "wiki dir",
+  apply: "wiki dir", proposal: "wiki dir", root: "repo root",
+};
 
 /* cạnh: [from, to, kind]  kind: flow | feed | gate | loop */
 const EDGES = [
@@ -423,29 +454,33 @@ readPalette();
 const activeNodes = () => new Set(NODES.filter(n => n.modes === "*" || n.modes === state.mode).map(n => n.id));
 
 /* Layout: lưới col×row → pixel.
-   - Rộng (≥880px): 7 cột × 7 hàng, dùng toạ độ `wide` — đọc được theo mảng
-     "nguồn vào → wiki → chỉ mục → retrieval → cổng người".
-   - Hẹp: 2 cột, xếp theo `slot` (trình tự dữ liệu), cao động theo số hàng. */
+   - Đủ rộng (≥1000px): 7 cột × 5 hàng theo toạ độ `wide` tác giả đặt — đọc được
+     theo lớp "nguồn vào → wiki → chỉ mục → retrieval → cổng người".
+   - Hẹp hơn: xếp dòng tự động theo `slot` ĐÃ NÉN, số cột tăng theo chiều rộng.
+     2 cột cố định là sai ở 1000px (node 240px nổi giữa khoảng trống chết);
+     1 cột dưới 340px vì 2 cột chỉ còn 116px/node. */
 const PAD = { x: 18, y: 22 };
-const WIDE_BREAK = 880;
-function narrowRows(count) { return Math.ceil(count / 2); }
+const WIDE_BREAK = 1000;
+const narrowCols = (W) => W >= 760 ? 4 : W >= 520 ? 3 : W >= 340 ? 2 : 1;
+const NARROW_ROW_H = 78;
+const narrowHeight = (count, cols) => Math.ceil(count / cols) * NARROW_ROW_H + 44;
 function layout(W, H) {
   const wide = W >= WIDE_BREAK;
   const nodes = NODES.filter(n => activeNodes().has(n.id));
-  const cols = wide ? 7 : 2;
-  const rows = wide ? 7 : narrowRows(nodes.length);
+  const cols = wide ? 7 : narrowCols(W);
+  const rows = wide ? 5 : Math.ceil(nodes.length / cols);
   const cw = (W - PAD.x * 2) / cols, rh = (H - PAD.y * 2) / rows;
-  const nw = wide ? Math.min(cw * 0.94, 168) : Math.min(cw * 0.96, 240);
-  const nh = wide ? Math.min(rh * 0.8, 62) : Math.min(rh * 0.8, 60);
+  const nw = wide ? Math.min(cw * 0.94, 168) : Math.min(cw * 0.94, 240);
+  const nh = Math.min(rh * 0.8, 62);
   const pos = new Map();
-  for (const n of nodes) {
-    const [c, r] = wide ? n.wide : [n.slot % 2, Math.floor(n.slot / 2)];
+  nodes.forEach((n, dense) => {
+    const [c, r] = wide ? n.wide : [dense % cols, Math.floor(dense / cols)];
     pos.set(n.id, {
       x: PAD.x + c * cw + (cw - nw) / 2,
       y: PAD.y + r * rh + (rh - nh) / 2,
       w: nw, h: nh, n, wide,
     });
-  }
+  });
   return { pos, wide };
 }
 
@@ -459,15 +494,26 @@ function rrect(x, y, w, h, r) {
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
 }
+/* Tách token dài không có dấu cách (`wiki/<domain>/*.md`, `.rag_index/*.npy`)
+   tại các ký hiệu đường dẫn, nếu không wrap() chỉ down-grade thành ellipsis.
+   Không dùng lookbehind — Safari <16.4 ném SyntaxError làm chết cả script. */
+function tokens(text) {
+  const out = [];
+  for (const piece of text.split(/(\s+)/)) {
+    if (!piece || /^\s+$/.test(piece)) { out.push(piece); continue; }
+    out.push(...(piece.match(/[^\/._*:>-]+[\/._*:>-]*/g) || [piece]));
+  }
+  return out;
+}
 function wrap(text, max, size, weight) {
   ctx.font = `${weight} ${size}px ${cssVar("--ui")}`;
-  const words = text.split(" "), lines = []; let cur = "";
-  for (const w of words) {
-    const t = cur ? cur + " " + w : w;
-    if (ctx.measureText(t).width > max && cur) { lines.push(cur); cur = w; }
+  const lines = []; let cur = "";
+  for (const w of tokens(text)) {
+    const t = cur + w;
+    if (ctx.measureText(t).width > max && cur.trim()) { lines.push(cur.trim()); cur = w.trimStart(); }
     else cur = t;
   }
-  if (cur) lines.push(cur);
+  if (cur.trim()) lines.push(cur.trim());
   return lines.slice(0, 2);
 }
 function ellipsize(text, max) {
@@ -506,9 +552,14 @@ function draw() {
     const part = inStep.has(from) || inStep.has(to);
 
     ctx.save();
-    ctx.lineWidth = live ? 2 : 1.25;
-    ctx.strokeStyle = live ? COL.ink : COL.line;
-    ctx.globalAlpha = live ? 0.85 : (part ? 0.55 : 0.32);
+    ctx.lineWidth = live ? 2 : 1.4;
+    /* Cạnh không-active vẫn phải ĐỌC ĐƯỢC quan hệ (3 kênh → RRF là linh hồn
+       của sơ đồ), nên không được nhạt thành bụi: tô theo vai trò của đích. */
+    ctx.strokeStyle = live ? COL.ink
+      : kind === "gate" ? COL.roles.human
+      : kind === "feed" ? COL.roles[b.n.role]
+      : COL.ink3;
+    ctx.globalAlpha = live ? 0.9 : (part ? 0.7 : 0.42);
     ctx.setLineDash(kind === "gate" ? [5, 4] : kind === "loop" ? [2, 3] : []);
     ctx.beginPath();
     ctx.moveTo(p.x, p.y);
@@ -524,7 +575,7 @@ function draw() {
     ctx.lineTo(q.x - 7 * Math.cos(ang - 0.42), q.y - 7 * Math.sin(ang - 0.42));
     ctx.lineTo(q.x - 7 * Math.cos(ang + 0.42), q.y - 7 * Math.sin(ang + 0.42));
     ctx.closePath();
-    ctx.fillStyle = live ? COL.ink : COL.line;
+    ctx.fillStyle = ctx.strokeStyle;
     ctx.fill();
     ctx.restore();
 
@@ -545,19 +596,9 @@ function draw() {
     }
   }
 
-  /* 2 · khung "repo" cho project mode — nói rõ wiki nằm TRONG repo */
-  if (state.mode === "project" && wide) {
-    const wiki = pos.get("pages");
-    if (wiki) {
-      const x = wiki.x - 26, y = PAD.y - 6, w = W - wiki.x - wiki.w / 2 + 12, h = H - PAD.y * 2 + 4;
-      ctx.save();
-      ctx.setLineDash([6, 5]); ctx.strokeStyle = COL.ink3; ctx.lineWidth = 1;
-      rrect(x, y, Math.min(w, W - x - 8), h, 10); ctx.stroke(); ctx.setLineDash([]);
-      ctx.font = `500 11px ${cssVar("--mono")}`; ctx.fillStyle = COL.ink3;
-      ctx.fillText("<project root>/", x + 8, y + h + 14 > H ? y - 6 : y - 5);
-      ctx.restore();
-    }
-  }
+  /* 2 · project mode: node nào nằm trong repo thì được TAG trên biên node.
+     Không dùng khung chữ nhật: mọi cách đặt khung đều hoặc nuốt nhầm node hàng
+     xóm (`ask` cùng cột với `inbox`) hoặc bỏ sót node cùng lớp. */
 
   /* 3 · node */
   for (const [id, p] of pos) {
@@ -582,6 +623,24 @@ function draw() {
     ctx.setLineDash([]);
     ctx.restore();
 
+    /* tag scope repo — nằm trên biên trên, không đè vào label (label được
+     căn giữa dọc, tag chỉ chiếm ~13px tính từ đỉnh node) */
+    if (state.mode === "project" && REPO_SCOPE[id]) {
+      const txt = REPO_SCOPE[id];
+      ctx.save();
+      ctx.globalAlpha = dim;
+      ctx.font = `600 8.5px ${cssVar("--mono")}`;
+      const tw = ctx.measureText(txt).width, px = 5, tx = p.x + 9;
+      ctx.fillStyle = COL.paper;
+      ctx.fillRect(tx - px, p.y - 6.5, tw + px * 2, 13);
+      ctx.strokeStyle = id === "root" ? COL.roles.engine : COL.ink3;
+      ctx.lineWidth = 1;
+      rrect(tx - px, p.y - 6.5, tw + px * 2, 13, 6.5); ctx.stroke();
+      ctx.fillStyle = COL.ink2; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+      ctx.fillText(txt, tx, p.y);
+      ctx.restore();
+    }
+
     /* Nhãn: tên tối đa 2 dòng + 1 dòng sub (ellipsis). CLIP vào node để chữ
        không bao giờ tràn sang hàng xóm ở bất kỳ breakpoint nào. Sub bị bỏ nếu
        không còn chỗ — thà thiếu một dòng phụ còn hơn đè chữ lên node khác. */
@@ -590,6 +649,8 @@ function draw() {
     rrect(p.x, p.y, p.w, p.h, 8); ctx.clip();
     ctx.fillStyle = COL.ink;
     ctx.textBaseline = "top";
+    ctx.textAlign = "left";
+    const badge = n.skill ? 26 : 0;              // chỗ cho nhãn "LLM" góc dưới phải
     const L1 = wrap(n.label, p.w - 20, fs + 1, "600").slice(0, 2);
     const withSub = L1.length * (fs + 3) + (n.sub ? fs : 0) <= p.h - 8;
     let ty = p.y + (p.h - (L1.length * (fs + 3) + (withSub && n.sub ? fs : 0))) / 2;
@@ -598,13 +659,13 @@ function draw() {
     if (withSub && n.sub) {
       ctx.font = `400 ${fs - 2}px ${cssVar("--ui")}`;
       ctx.fillStyle = COL.ink2;
-      ctx.fillText(ellipsize(n.sub, p.w - 20), p.x + 10, ty + 1);
+      ctx.fillText(ellipsize(n.sub, p.w - 20 - badge), p.x + 10, ty + 1);
     }
     /* ký hiệu "LLM" = bước này cần skill; shape + text, không chỉ màu */
     if (n.skill) {
       ctx.font = `600 8.5px ${cssVar("--mono")}`; ctx.fillStyle = COL.ink2;
-      ctx.textBaseline = "bottom";
-      ctx.fillText("LLM", p.x + p.w - 10, p.y + p.h - 5);
+      ctx.textBaseline = "bottom"; ctx.textAlign = "right";
+      ctx.fillText("LLM", p.x + p.w - 8, p.y + p.h - 5);
     }
     ctx.restore();
   }
@@ -634,10 +695,10 @@ function kick() { if (!raf && (state.motion || state.playing)) { last = 0; raf =
 function resize() {
   const shell = cv.parentElement;
   const w = shell.clientWidth;
-  const wide = w >= WIDE_BREAK;
   const count = NODES.filter(n => activeNodes().has(n.id)).length;
-  const h = wide ? Math.round(Math.min(560, Math.max(430, w * 0.44)))
-                 : 76 * narrowRows(count) + 44;
+  const h = w >= WIDE_BREAK
+    ? Math.round(Math.min(560, Math.max(430, w * 0.44)))
+    : narrowHeight(count, narrowCols(w));
   shell.style.height = h + "px";
   const dpr = Math.min(3, window.devicePixelRatio || 1);
   cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
@@ -693,19 +754,25 @@ document.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click"
   go(state.step, true); resize();
 }));
 
+/* aria-pressed PHẢI phản ánh state thật, không phải giá trị hardcode trong HTML:
+   với prefers-reduced-motion, state.motion = 0 ngay từ đầu nên bản hardcode
+   "Vừa"=true sẽ nói sai tình trạng của control. */
+function syncMotion() {
+  document.querySelectorAll("[data-motion]").forEach(x =>
+    x.setAttribute("aria-pressed", String(Number(x.dataset.motion) === state.motion)));
+}
 document.querySelectorAll("[data-motion]").forEach(b => b.addEventListener("click", () => {
   state.motion = Number(b.dataset.motion);
-  document.querySelectorAll("[data-motion]").forEach(x =>
-    x.setAttribute("aria-pressed", String(x === b)));
+  syncMotion();
   kick();
 }));
 
 document.getElementById("prev").addEventListener("click", () => go(state.step - 1));
 document.getElementById("next").addEventListener("click", () => go(state.step + 1));
 document.getElementById("play").addEventListener("click", () => {
-  state.playing = !state.playing; if (state.playing && !state.motion) state.motion = 1,
-    document.querySelector('[data-motion="1"]').setAttribute("aria-pressed", "true");
-  syncPlay(); kick();
+  state.playing = !state.playing;
+  if (state.playing && !state.motion) state.motion = 1;   // chạy thì phải có nét
+  syncMotion(); syncPlay(); kick();
 });
 
 /* keyboard: ←/→ bước, space chạy/dừng (không bắt khi focus ở control khác) */
@@ -758,7 +825,16 @@ STEPS.forEach(s => {
   alt.appendChild(li);
 });
 
-go(0, true); syncPlay(); resize();
+/* Stepper tràn ngang ở desktop rộng (9 chip ≈ 1750px). Fade mép phải báo "còn
+   nữa"; hết nội dung bị cắt thì bỏ fade, không để tín hiệu giả. */
+function syncStepperEdge() {
+  const end = stepper.scrollLeft + stepper.clientWidth >= stepper.scrollWidth - 4;
+  stepper.dataset.end = end ? "1" : "0";
+}
+stepper.addEventListener("scroll", syncStepperEdge, { passive: true });
+addEventListener("resize", syncStepperEdge);
+
+go(0, true); syncPlay(); syncMotion(); resize(); syncStepperEdge();
 </script>
 </body>
 </html>
