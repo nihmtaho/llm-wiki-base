@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>llm-wiki — dòng chảy dữ liệu (canvas diagram)</title>
+<meta name="description" content="Sơ đồ động giải thích cách llm-wiki biến nguồn thô thành wiki có chỉ mục hybrid, và chỗ nào con người giữ quyền quyết định.">
+<style>
+  /* ── Tokens ──────────────────────────────────────────────────────────────
+     4 role hues, tách nhau bằng LIGHTNESS (không chỉ bằng hue) để còn phân biệt
+     khi mô phỏng deuteranopia/protanopia. Mỗi node còn có nhãn chữ + ký hiệu
+     riêng → không bao giờ chỉ dựa vào màu. */
+  :root {
+    --paper:      oklch(0.985 0.004 85);
+    --paper-sunk: oklch(0.962 0.006 85);
+    --line:       oklch(0.88 0.008 85);
+    --ink:        oklch(0.28 0.015 75);
+    --ink-2:      oklch(0.45 0.015 75);
+    --ink-3:      oklch(0.62 0.012 75);
+
+    --c-data:     oklch(0.55 0.090 185);  /* markdown = nguồn sự thật */
+    --c-derived:  oklch(0.60 0.110 70);   /* chỉ mục derived, vứt được */
+    --c-engine:   oklch(0.47 0.055 250);  /* CLI/MCP/search: tất định */
+    --c-human:    oklch(0.50 0.155 20);   /* quyền quyết định của người */
+    --c-data-bg:    oklch(0.55 0.090 185 / 0.10);
+    --c-derived-bg: oklch(0.60 0.110 70  / 0.12);
+    --c-engine-bg:  oklch(0.47 0.055 250 / 0.09);
+    --c-human-bg:   oklch(0.50 0.155 20  / 0.10);
+
+    --ui: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+
+    --u: 4px;                 /* spacing unit; section gap = 9u */
+    --r: 8px;
+    --focus: 0 0 0 3px var(--paper), 0 0 0 6px oklch(0.47 0.055 250 / 0.55);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: oklch(0.20 0.012 250); --paper-sunk: oklch(0.17 0.012 250);
+      --line: oklch(0.31 0.012 250);
+      --ink: oklch(0.93 0.008 85); --ink-2: oklch(0.78 0.010 85); --ink-3: oklch(0.63 0.012 85);
+      --c-data: oklch(0.72 0.10 185); --c-derived: oklch(0.75 0.11 75);
+      --c-engine: oklch(0.72 0.07 250); --c-human: oklch(0.70 0.14 25);
+      --c-data-bg: oklch(0.72 0.10 185 / 0.13); --c-derived-bg: oklch(0.75 0.11 75 / 0.14);
+      --c-engine-bg: oklch(0.72 0.07 250 / 0.13); --c-human-bg: oklch(0.70 0.14 25 / 0.14);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 400 16px/1.6 var(--ui);
+    font-feature-settings: "kern", "liga";
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: calc(var(--u)*9) calc(var(--u)*5) calc(var(--u)*18); }
+
+  header.masthead { border-block-end: 1px solid var(--line); padding-block: calc(var(--u)*10) calc(var(--u)*7); }
+  .masthead-in { max-width: 1120px; margin: 0 auto; padding-inline: calc(var(--u)*5);
+                 display: grid; gap: calc(var(--u)*4); }
+  .eyebrow { font: 500 12px/1.2 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+             color: var(--ink-3); margin: 0; }
+  h1 { font-size: clamp(28px, 4.4vw, 44px); line-height: 1.08; letter-spacing: -0.02em;
+       font-weight: 650; margin: 0; max-width: 22ch; }
+  .lede { font-size: clamp(16px, 1.5vw, 18px); line-height: 1.55; color: var(--ink-2);
+          max-width: 68ch; margin: 0; }
+  .lede code { font: 500 .92em/1 var(--mono); }
+
+  /* ── Controls ── */
+  .toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: calc(var(--u)*6);
+             padding-block: calc(var(--u)*5); border-block-end: 1px solid var(--line); }
+  .field { display: grid; gap: calc(var(--u)*2); }
+  .field > span { font: 500 11px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+                  color: var(--ink-3); }
+  .seg { display: inline-flex; background: var(--paper-sunk); border: 1px solid var(--line);
+         border-radius: var(--r); padding: 3px; gap: 3px; }
+  .seg button {
+    font: 500 14px/1 var(--ui); color: var(--ink-2); background: none; border: 0;
+    padding: calc(var(--u)*2.5) calc(var(--u)*4); border-radius: 5px; cursor: pointer;
+    min-height: 44px; min-width: 44px;
+    transition: background 150ms cubic-bezier(.16,1,.3,1), color 150ms;
+  }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  .seg button:hover:not([aria-pressed="true"]) { background: oklch(0.5 0.02 75 / .10); color: var(--ink); }
+  .btn {
+    font: 500 14px/1 var(--ui); background: var(--paper); color: var(--ink);
+    border: 1px solid var(--line); border-radius: var(--r); cursor: pointer;
+    min-height: 44px; padding: 0 calc(var(--u)*4);
+    display: inline-flex; align-items: center; gap: calc(var(--u)*2);
+    transition: border-color 150ms, background 150ms;
+  }
+  .btn:hover { border-color: var(--ink-3); background: var(--paper-sunk); }
+  .btn:active { transform: translateY(1px); }
+  :is(button, a, select, [tabindex]):focus-visible { outline: none; box-shadow: var(--focus); }
+
+  /* ── Stage ── */
+  .stage-shell { position: relative; margin-block: calc(var(--u)*7); border: 1px solid var(--line);
+                 border-radius: calc(var(--r)*1.5); background: var(--paper-sunk); overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: pan-y; }
+  .stage-hint { position: absolute; inset-block-start: calc(var(--u)*3); inset-inline-end: calc(var(--u)*3);
+                font: 500 11px/1.3 var(--mono); letter-spacing: .04em; color: var(--ink-3);
+                background: var(--paper); border: 1px solid var(--line); border-radius: 99px;
+                padding: 6px 10px; pointer-events: none; }
+  .tooltip {
+    position: absolute; z-index: 3; max-width: 34ch; pointer-events: none; opacity: 0;
+    transform: translateY(4px); transition: opacity 120ms, transform 120ms;
+    background: var(--ink); color: var(--paper); border-radius: var(--r);
+    padding: calc(var(--u)*2.5) calc(var(--u)*3); font-size: 13px; line-height: 1.45;
+  }
+  .tooltip[data-show="1"] { opacity: 1; transform: none; }
+  .tooltip b { font-weight: 650; display: block; margin-block-end: 2px; }
+  .tooltip code { font-family: var(--mono); font-size: 12px; opacity: .85; }
+
+  /* ── Stepper ── */
+  .stepper { display: flex; gap: calc(var(--u)*2); overflow-x: auto; padding: calc(var(--u)*3) 0;
+             scroll-snap-type: x proximity; scrollbar-width: thin; }
+  .chip {
+    scroll-snap-align: start; flex: 0 0 auto; font: 500 13px/1 var(--ui);
+    border: 1px solid var(--line); background: var(--paper); color: var(--ink-2);
+    border-radius: 99px; padding: calc(var(--u)*2.5) calc(var(--u)*3.5); cursor: pointer;
+    min-height: 44px; display: inline-flex; align-items: center; gap: calc(var(--u)*2);
+    transition: color 150ms, border-color 150ms, background 150ms;
+  }
+  .chip .n { font: 600 11px/1 var(--mono); opacity: .65; }
+  .chip:hover { border-color: var(--ink-3); }
+  .chip[aria-current="step"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+  .chip[aria-current="step"] .n { opacity: .8; }
+
+  /* ── Readout ── */
+  .readout { display: grid; gap: calc(var(--u)*5); grid-template-columns: minmax(0,1fr);
+             padding-block: calc(var(--u)*7); border-block-start: 1px solid var(--line); }
+  @media (min-width: 900px) { .readout { grid-template-columns: minmax(0,1.55fr) minmax(0,1fr); } }
+  .r-title { font-size: clamp(20px, 2.4vw, 26px); line-height: 1.2; letter-spacing: -.01em;
+             font-weight: 640; margin: 0 0 calc(var(--u)*3); }
+  .r-body { margin: 0; color: var(--ink-2); max-width: 66ch; }
+  .r-body strong { color: var(--ink); font-weight: 620; }
+  .meta { display: grid; gap: calc(var(--u)*4); align-content: start; }
+  .meta dl { margin: 0; display: grid; gap: calc(var(--u)*1); }
+  .meta dt { font: 500 11px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+             color: var(--ink-3); }
+  .meta dd { margin: 0; font-size: 14.5px; line-height: 1.5; }
+  .meta dd.cmd { font: 500 13px/1.6 var(--mono); background: var(--paper-sunk);
+                 border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+                 white-space: pre-wrap; word-break: break-word; }
+  .tag { display: inline-flex; align-items: center; gap: 6px; font: 600 11px/1 var(--mono);
+         letter-spacing: .08em; text-transform: uppercase; border-radius: 99px;
+         padding: 6px 9px; border: 1px solid currentColor; }
+  .tag.data { color: var(--c-data); } .tag.derived { color: var(--c-derived); }
+  .tag.engine { color: var(--c-engine); } .tag.human { color: var(--c-human); }
+
+  /* ── Legend + prose ── */
+  .legend { display: flex; flex-wrap: wrap; gap: calc(var(--u)*5); padding-block: calc(var(--u)*6);
+            border-block-start: 1px solid var(--line); }
+  .legend div { display: grid; grid-auto-flow: column; align-items: center; gap: calc(var(--u)*2.5);
+                font-size: 13.5px; color: var(--ink-2); }
+  .sw { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid; }
+  .sw.data { background: var(--c-data-bg); border-color: var(--c-data); }
+  .sw.derived { background: var(--c-derived-bg); border-color: var(--c-derived); }
+  .sw.engine { background: var(--c-engine-bg); border-color: var(--c-engine); }
+  .sw.human { background: var(--c-human-bg); border-color: var(--c-human); }
+  .sw.skill { background: none; border-color: var(--ink-2); border-style: dashed; }
+
+  section.prose { padding-block: calc(var(--u)*9) 0; border-block-start: 1px solid var(--line);
+                  margin-block-start: calc(var(--u)*4); }
+  section.prose > h2 { font-size: 19px; letter-spacing: -.01em; margin: 0 0 calc(var(--u)*4); }
+  section.prose p, section.prose li { max-width: 70ch; color: var(--ink-2); }
+  section.prose ul { padding-inline-start: 1.2rem; display: grid; gap: calc(var(--u)*2); }
+  code { font-family: var(--mono); font-size: .93em; background: var(--paper-sunk);
+         border: 1px solid var(--line); border-radius: 4px; padding: .08em .35em; }
+  details.alt { margin-block-start: calc(var(--u)*6); border: 1px solid var(--line);
+                border-radius: var(--r); background: var(--paper-sunk); }
+  details.alt > summary { cursor: pointer; padding: calc(var(--u)*4); font-weight: 600; font-size: 15px;
+                          min-height: 44px; display: flex; align-items: center; }
+  details.alt ol { margin: 0; padding: 0 calc(var(--u)*5) calc(var(--u)*5) calc(var(--u)*8);
+                   display: grid; gap: calc(var(--u)*3); }
+  footer.doc-foot { margin-block-start: calc(var(--u)*14); padding-block-start: calc(var(--u)*6);
+                    border-block-start: 1px solid var(--line); font-size: 14px; color: var(--ink-3);
+                    display: flex; flex-wrap: wrap; gap: calc(var(--u)*5); }
+  footer.doc-foot a { color: var(--c-engine); text-underline-offset: 3px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+             clip-path: inset(50%); white-space: nowrap; border: 0; }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-in">
+    <p class="eyebrow">llm-wiki · kiến trúc</p>
+    <h1>Nguồn thô thành wiki, chỉ mục là đồ vứt đi, quyền quyết định nằm ở người</h1>
+    <p class="lede">
+      Ba tầng tách nhau rõ: <strong>markdown</strong> là nguồn sự thật,
+      <strong>chỉ mục search</strong> là derived (rebuild được),
+      <strong>phần cần hiểu nghĩa</strong> do skill + LLM của AI tool làm.
+      Cái bạn sắp xem là đường đi của một tài liệu, và chỗ nào máy bị chặn không được tự quyết.
+    </p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="toolbar">
+    <div class="field">
+      <span id="lbl-mode">Chế độ wiki</span>
+      <div class="seg" role="group" aria-labelledby="lbl-mode">
+        <button type="button" data-mode="personal" aria-pressed="true">Personal</button>
+        <button type="button" data-mode="project" aria-pressed="false">Project (codebase)</button>
+      </div>
+    </div>
+    <div class="field">
+      <span id="lbl-motion">Chuyển động</span>
+      <div class="seg" role="group" aria-labelledby="lbl-motion">
+        <button type="button" data-motion="0" aria-pressed="false">Tắt</button>
+        <button type="button" data-motion="1" aria-pressed="true">Vừa</button>
+        <button type="button" data-motion="2" aria-pressed="false">Đầy đủ</button>
+      </div>
+    </div>
+    <div class="field" style="margin-inline-start:auto">
+      <span>&nbsp;</span>
+      <div style="display:flex;gap:calc(var(--u)*2)">
+        <button type="button" class="btn" id="prev" aria-label="Bước trước">←</button>
+        <button type="button" class="btn" id="play" aria-pressed="false">
+          <span aria-hidden="true">▶</span> <span class="lbl">Chạy tự động</span>
+        </button>
+        <button type="button" class="btn" id="next" aria-label="Bước tiếp">→</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage-shell">
+    <canvas id="flow" role="img"
+      aria-label="Sơ đồ dòng chảy llm-wiki: raw/inbox → ingest skill → wiki pages → ba chỉ mục derived → wiki_search → RRF → rerank → trả lời có cite, với cổng human review cho proposal.">
+    </canvas>
+    <span class="stage-hint" aria-hidden="true">click node · ←/→ bước · space chạy/dừng</span>
+    <div class="tooltip" id="tip" role="status" aria-live="off"></div>
+  </div>
+
+  <nav class="stepper" id="stepper" aria-label="Các bước trong luồng"></nav>
+
+  <div class="readout">
+    <div>
+      <p class="r-title" id="r-title">—</p>
+      <p class="r-body" id="r-body" aria-live="polite">—</p>
+    </div>
+    <div class="meta">
+      <dl><dt>Ai làm</dt><dd id="m-actor">—</dd></dl>
+      <dl><dt>Nơi nằm</dt><dd id="m-place" class="cmd">—</dd></dl>
+      <dl><dt>Lệnh</dt><dd id="m-cmd" class="cmd">—</dd></dl>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div><span class="sw data" aria-hidden="true"></span> Markdown — nguồn sự thật</div>
+    <div><span class="sw derived" aria-hidden="true"></span> Chỉ mục derived — rebuild được</div>
+    <div><span class="sw engine" aria-hidden="true"></span> Máy tất định — CLI / MCP / SQLite</div>
+    <div><span class="sw human" aria-hidden="true"></span> Quyền của người — duyệt, pin, báo lỗi</div>
+    <div><span class="sw skill" aria-hidden="true"></span> Nét đứt = cần LLM (skill), không phải code</div>
+  </div>
+
+  <section class="prose">
+    <h2>Vì sao sơ đồ lại cắt ở đúng những chỗ đó</h2>
+    <ul>
+      <li><strong>Chữ <code>verified</code> là ranh giới, không phải trang trí.</strong>
+        AI sinh page thì <code>generated.by</code> nói ai viết; chỉ người mới set được
+        <code>verified.by = "human:…"</code>. Retrieval vẫn trả page unverified, nhưng skill
+        phải gắn cảnh báo — số liệu trust nằm trong chính kết quả tìm.</li>
+      <li><strong>Cổng <code>.proposals/</code> tồn tại vì một lý do duy nhất:</strong> AI đọc
+        wiki của người khác thì dễ, còn <em>khẳng định</em> một sự thật vào wiki thì phải có
+        người ký. <code>wiki_propose_edit</code> chỉ ghi staging; <code>apply</code> là lệnh
+        của bạn.</li>
+      <li><strong>Hai kênh BM25 và một kênh vector dùng chung ranh giới chunk.</strong>
+        Không cùng một <code>chunking.py</code> thì RRF giữa chúng vô nghĩa — bạn đang cộng
+        hạng của hai cách cắt khác nhau.</li>
+      <li><strong>Không chunk:</strong> <code>index.md</code>/<code>log.md</code> (reserved),
+        bản dịch <code>*.lang.md</code>, frontmatter, và footnote trích nguyên văn. Để
+        <code>log.md</code> vào chunk index thì mọi query từ khoá đều ăn điểm giả.</li>
+      <li><strong>Personal khác project ở nội dung, không ở bộ skill.</strong> Cùng 8 skill;
+        <code>[wiki].profile</code> quyết định có verify code path và tách
+        intent/observation hay không. Project wiki còn có <code>llm-wiki-research</code>
+        ở <em>root repo</em> — nó cần thấy mọi wiki, nên không được nhét vào trong một wiki.</li>
+    </ul>
+
+    <details class="alt">
+      <summary>Bản chữ của sơ đồ (đọc được bằng screen reader / không cần canvas)</summary>
+      <ol id="alt-list"></ol>
+    </details>
+  </section>
+
+  <footer class="doc-foot">
+    <span>Tài liệu chính: <a href="../README.md">README</a> ·
+      <a href="init.md">init guide</a> ·
+      <a href="tier3-roadmap.md">roadmap</a> ·
+      <a href="../src/llm_wiki/templates/agents/_schema.md">_schema.md</a></span>
+    <span>Sơ đồ này chạy offline, không dependency ngoài.</span>
+  </footer>
+</main>
+
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════════════════════
+   1. GRAPH — node + cạnh + các bước. Toạ độ là (col,row) trên lưới trừu tượng,
+   quy đổi ra pixel theo breakpoint → cùng một dữ liệu, hai cách xếp.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const ROLE = { data: "data", derived: "derived", engine: "engine", human: "human" };
+
+/* Node: `wide` = (col,row) trên lưới 7×7 desktop. `slot` = số thứ tự trong
+   chuỗi đọc khi xếp cột đơn (mọi breakpoint hẹp) — đọc từ trên xuống đúng
+   trình tự dữ liệu, không phải toạ độ. */
+const NODES = [
+  { id: "human",   label: "Người thả nguồn",       sub: "file · URL · YouTube",   role: ROLE.human,  skill: false, wide: [0,0], slot: 0, modes: "*" },
+  { id: "extract", label: "extract_url/pdf/youtube", sub: "scripts/ trong base",   role: ROLE.engine, skill: false, wide: [0,1], slot: 1, modes: "*" },
+  { id: "submit",  label: "wiki_submit (MCP)",      sub: "AI khác nạp, bắt buộc wiki=", role: ROLE.engine, skill: false, wide: [0,2], slot: 2, modes: "*" },
+  { id: "inbox",   label: "raw/inbox/",             sub: "staging, chờ ingest",    role: ROLE.data,   skill: false, wide: [1,1], slot: 3, modes: "*" },
+  { id: "ingest",  label: "skill llm-wiki-ingest",  sub: "đọc · tóm tắt · chọn domain", role: ROLE.data, skill: true, wide: [2,1], slot: 4, modes: "*" },
+  { id: "verifycode", label: "verify code path",    sub: "grep/codegraph trước khi ghi", role: ROLE.human, skill: true, wide: [2,3], slot: 5, modes: "project" },
+  { id: "pages",   label: "wiki/<domain>/*.md",     sub: "source · entity · concept", role: ROLE.data, skill: false, wide: [3,1], slot: 6, modes: "*" },
+  { id: "catalog", label: "index.md + log.md",      sub: "re-derivable → tự ghi",  role: ROLE.data,   skill: false, wide: [3,2], slot: 7, modes: "*" },
+  { id: "reindex", label: "llm-wiki reindex",       sub: "content-hash, tăng dần", role: ROLE.engine, skill: false, wide: [4,1], slot: 8, modes: "*" },
+  { id: "pfts",    label: "pages_fts",              sub: "BM25 cấp page",          role: ROLE.derived, skill: false, wide: [5,0], slot: 9, modes: "*" },
+  { id: "cfts",    label: "chunks_fts",             sub: "BM25 cấp chunk",         role: ROLE.derived, skill: false, wide: [5,1], slot: 10, modes: "*" },
+  { id: "vectors", label: ".rag_index/*.npy",       sub: "vector (fastembed)",     role: ROLE.derived, skill: false, wide: [5,2], slot: 11, modes: "*" },
+  { id: "ask",     label: "Câu hỏi",                sub: "trong AI tool",          role: ROLE.human,  skill: false, wide: [1,4], slot: 12, modes: "*" },
+  { id: "search",  label: "wiki_search (MCP)",      sub: "pool = 2 × top_n_final", role: ROLE.engine, skill: false, wide: [3,4], slot: 13, modes: "*" },
+  { id: "rrf",     label: "RRF trên hạng",          sub: "3 kênh → 1 thứ tự",      role: ROLE.engine, skill: false, wide: [4,4], slot: 14, modes: "*" },
+  { id: "rerank",  label: "skill rerank + query",   sub: "title/snippet/matched_by", role: ROLE.data, skill: true, wide: [5,4], slot: 15, modes: "*" },
+  { id: "answer",  label: "Trả lời + cite",         sub: "flag unverified / stale", role: ROLE.data,   skill: true,  wide: [6,4], slot: 16, modes: "*" },
+  { id: "proposal", label: "wiki/.proposals/",      sub: "staging, có metadata",   role: ROLE.human, skill: false, wide: [5,6], slot: 17, modes: "*" },
+  { id: "apply",   label: "proposals apply",        sub: "→ verify --by <bạn>",    role: ROLE.human, skill: false, wide: [3,6], slot: 18, modes: "*" },
+  { id: "pins",    label: "pins.yml · alerts/",     sub: "sửa tay sống qua regenerate", role: ROLE.human, skill: false, wide: [1,6], slot: 19, modes: "*" },
+  { id: "root",    label: "llm-wiki-research",      sub: "xuyên N wiki, chỉ staging", role: ROLE.engine, skill: true, wide: [6,2], slot: 20, modes: "project" },
+];
+
+/* cạnh: [from, to, kind]  kind: flow | feed | gate | loop */
+const EDGES = [
+  ["human","inbox","flow"], ["extract","inbox","flow"], ["submit","inbox","flow"],
+  ["inbox","ingest","flow"], ["ingest","verifycode","gate"], ["verifycode","pages","gate"],
+  ["ingest","pages","flow"], ["pages","catalog","flow"], ["pages","reindex","flow"],
+  ["reindex","pfts","feed"], ["reindex","cfts","feed"], ["reindex","vectors","feed"],
+  ["ask","search","flow"], ["pfts","rrf","feed"], ["cfts","rrf","feed"], ["vectors","rrf","feed"],
+  ["search","rrf","flow"], ["rrf","rerank","flow"], ["rerank","answer","flow"],
+  ["answer","proposal","gate"], ["proposal","apply","gate"], ["apply","pages","gate"],
+  ["pins","pages","gate"], ["ask","root","flow"], ["root","search","flow"],
+];
+
+/* Ba bước một lần chạy: ai làm / nơi nằm / lệnh. `byMode` ghi đè theo profile. */
+const STEPS = [
+  { key: "inbox", title: "1 · Nguồn vào staging", nodes: ["human","extract","submit","inbox"],
+    actor: "Người, hoặc AI khác qua MCP", place: "raw/inbox/", cmd: "# thả file tay, hoặc:\npython ~/.llm-wiki-base/scripts/extract_url.py <url>",
+    body: "Không có đường tắt vào <strong>wiki/</strong>. Mọi thứ đi qua <code>raw/inbox/</code> trước. AI ngoài chỉ được phép ghi đúng một chỗ: <code>wiki_submit</code> → inbox của wiki <em>do người chỉ định</em> (tham số <code>wiki</code> bắt buộc, không được tự chọn wiki để ghi).",
+    byMode: { project: null } },
+  { key: "ingest", title: "2 · Ingest = skill + LLM", nodes: ["ingest","verifycode"],
+    actor: "SKILL (cần LLM) — CLI không làm bước này", place: "AI tool đang mở", cmd: "# llm-wiki ingest <file> CHỈ index.\n# Viết page: chạy skill llm-wiki-ingest trong AI tool.",
+    body: "Đọc trọn nguồn, tóm tắt 3–5 takeaway, <strong>bàn với người trước khi ghi</strong>, auto-detect domain, rồi viết source/entity/concept page kèm provenance. <code>verified</code> để trống — chờ người.",
+    byMode: {
+      personal: { extra: "Personal: 1 source thường chạm 10–15 page; từ vựng/ngữ pháp phải vào wiki chứ không nằm chết trong source page." },
+      project:  { extra: "Codebase: 5–10 page, domain nghiêng về tech-stack/architecture/conventions, và MỌI code path phải được grep/codegraph confirm trước khi ghi — wiki stale về đường dẫn file là lỗi nghiêm trọng nhất." } } },
+  { key: "write", title: "3 · Markdown là nguồn sự thật", nodes: ["pages","catalog"],
+    actor: "Skill ghi; người đọc", place: "wiki/<domain>/{source,entity,concept}/", cmd: "vim wiki/expo-router/concept/router.md",
+    body: "Page mới + cross-link <code>[[wiki/…]]</code> + cập nhật <code>index.md</code>/<code>log.md</code>. Hai file catalog đó <em>re-derivable</em> nên agent tự ghi; mọi assertion khác thì không.",
+    byMode: {} },
+  { key: "index", title: "4 · Dựng chỉ mục derived", nodes: ["reindex","pfts","cfts","vectors"],
+    actor: "CLI tất định", place: "wiki/.wiki.db + rag/.rag_index/", cmd: "llm-wiki reindex          # tăng dần theo content-hash\nllm-wiki reindex --check   # dry-run + config drift\nllm-wiki reindex --full    # sau khi đổi chunk_tokens/embed_model/vector",
+    body: "Ba chỉ mục từ cùng một markdown: <code>pages_fts</code>, <code>chunks_fts</code> (FTS5), và vector chunk (fastembed on-device). Tất cả đều <strong>vứt đi rebuild được</strong> — nên chúng gitignored, và nếu index với markdown khác nhau thì markdown đúng.",
+    byMode: {} },
+  { key: "search", title: "5 · Câu hỏi → pool ứng viên", nodes: ["ask","search","root"],
+    actor: "MCP server (tất định) + skill điều phối", place: "llm-wiki-base-mcp → registry.toml", cmd: "wiki_search(query, top_k = 2 × top_n_final, wiki=\"\")",
+    body: "Một server duy nhất cho cả máy, đọc <code>registry.toml</code> để biết có wiki nào (<code>name</code> + <code>id</code>). <code>wiki=\"\"</code> = search mọi wiki. Xin pool <strong>rộng hơn</strong> số cần đọc vì bước cắt cần ngữ nghĩa, không cần thống kê.",
+    byMode: {
+      personal: { extra: "Wiki cá nhân: query thường ở trong một wiki → skill llm-wiki-query." },
+      project:  { extra: "Repo code: chưa biết câu trả lời nằm ở wiki nào → llm-wiki-research ở root repo, đối chiếu project wiki ↔ personal wiki, rồi mới fallback sang codegraph/grep." } } },
+  { key: "fuse", title: "6 · ba kênh → RRF", nodes: ["rrf","pfts","cfts","vectors"],
+    actor: "CLI/Python tất định", place: "tools/search.py", cmd: "# .llm-wiki.toml\n[retrieval]\nfusion = \"rrf\"\n[retrieval.weights]\nbm25_page = 1.0\nbm25_chunk = 1.0\nvector = 1.0",
+    body: "Không cộng thẳng score: <code>bm25()</code> và cosine khác thang hoàn toàn, nên RRF gộp bằng <strong>hạng</strong>. Mỗi kết quả mang <code>matched_by</code> + <code>rank</code> + <code>snippet</code>. Thiếu model / chưa build chunk → kênh đó tự tắt và <em>được báo</em>, không im lặng trả số liệu giả.",
+    byMode: {} },
+  { key: "rerank", title: "7 · Rerank = việc của LLM", nodes: ["rerank"],
+    actor: "SKILL (không phải tool, không phải model trong code)", place: "AI tool đang mở", cmd: "# [retrieval]\nrerank = \"llm\"   # Python không đọc key này",
+    body: "Chấm ứng viên chỉ bằng <code>title</code> + <code>snippet</code> + <code>matched_by</code> (chưa mở file), ưu tiên đúng chủ đề &gt; nhiều kênh &gt; trust tier &gt; page canonical, rồi mới mở <code>top_n_final</code> page. Đó là lý do không thêm reranker ONNX vào pipeline.",
+    byMode: {} },
+  { key: "answer", title: "8 · Trả lời, có xuất xứ", nodes: ["answer"],
+    actor: "Skill tổng hợp", place: "câu trả lời", cmd: "# cite: [[wiki/<domain>/source/x]] + footnote [^id]\n# hoặc URL trong sources:",
+    body: "Chunk chỉ đủ để <em>chọn</em> page — câu trả lời lấy từ page đã biên dịch. Page draft/không <code>verified</code>/quá <code>stale_after</code> phải bị gắn cờ ngay trong câu trả lời. Synthesis hay → file ngược thành page mới để wiki compounding.",
+    byMode: {} },
+  { key: "gate", title: "9 · Cổng người: proposal, verify, pin", nodes: ["proposal","apply","pins"],
+    actor: "NGƯỜI — máy chỉ đề xuất", place: "wiki/.proposals/ → page đã duyệt", cmd: "llm-wiki proposals list\nllm-wiki proposals show <name>      # unified diff\nllm-wiki proposals apply <name> --by <you>\nllm-wiki verify <path> --by <you>",
+    body: "AI đọc thì tự do, khẳng định thì phải có chữ ký. Proposal mang metadata (target đầy đủ, ai đề xuất, lúc nào) để <code>list</code>/<code>show</code> hiện được diff thật. <code>pins.yml</code> giữ đoạn người sửa tay sống qua regenerate; mâu thuẫn với pin → <code>wiki/alerts/</code>, không revert âm thầm.",
+    byMode: {} },
+];
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   2. STATE + CANVAS
+   ═════════════════════════════════════════════════════════════════════════ */
+const cv = document.getElementById("flow"), ctx = cv.getContext("2d");
+const TIP = document.getElementById("tip");
+const prefersReduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const state = {
+  mode: "personal",
+  step: 0,
+  motion: prefersReduce ? 0 : 1,      // 0 tắt · 1 vừa · 2 đầy đủ
+  playing: false,
+  t: 0,                                // clock ms cho packet
+  rects: new Map(),                    // id → {x,y,w,h} hit test
+  hover: null,
+};
+
+const cssVar = (n) => getComputedStyle(document.body).getPropertyValue(n).trim();
+let COL = {};
+function readPalette() {
+  COL = {
+    paper: cssVar("--paper"), sunk: cssVar("--paper-sunk"), line: cssVar("--line"),
+    ink: cssVar("--ink"), ink2: cssVar("--ink-2"), ink3: cssVar("--ink-3"),
+    roles: {
+      data: cssVar("--c-data"), derived: cssVar("--c-derived"),
+      engine: cssVar("--c-engine"), human: cssVar("--c-human"),
+    },
+    fills: {
+      data: cssVar("--c-data-bg"), derived: cssVar("--c-derived-bg"),
+      engine: cssVar("--c-engine-bg"), human: cssVar("--c-human-bg"),
+    },
+  };
+}
+readPalette();
+
+const activeNodes = () => new Set(NODES.filter(n => n.modes === "*" || n.modes === state.mode).map(n => n.id));
+
+/* Layout: lưới col×row → pixel.
+   - Rộng (≥880px): 7 cột × 7 hàng, dùng toạ độ `wide` — đọc được theo mảng
+     "nguồn vào → wiki → chỉ mục → retrieval → cổng người".
+   - Hẹp: 2 cột, xếp theo `slot` (trình tự dữ liệu), cao động theo số hàng. */
+const PAD = { x: 18, y: 22 };
+const WIDE_BREAK = 880;
+function narrowRows(count) { return Math.ceil(count / 2); }
+function layout(W, H) {
+  const wide = W >= WIDE_BREAK;
+  const nodes = NODES.filter(n => activeNodes().has(n.id));
+  const cols = wide ? 7 : 2;
+  const rows = wide ? 7 : narrowRows(nodes.length);
+  const cw = (W - PAD.x * 2) / cols, rh = (H - PAD.y * 2) / rows;
+  const nw = wide ? Math.min(cw * 0.94, 168) : Math.min(cw * 0.96, 240);
+  const nh = wide ? Math.min(rh * 0.8, 62) : Math.min(rh * 0.8, 60);
+  const pos = new Map();
+  for (const n of nodes) {
+    const [c, r] = wide ? n.wide : [n.slot % 2, Math.floor(n.slot / 2)];
+    pos.set(n.id, {
+      x: PAD.x + c * cw + (cw - nw) / 2,
+      y: PAD.y + r * rh + (rh - nh) / 2,
+      w: nw, h: nh, n, wide,
+    });
+  }
+  return { pos, wide };
+}
+
+/* ── Draw helpers ── */
+function rrect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function wrap(text, max, size, weight) {
+  ctx.font = `${weight} ${size}px ${cssVar("--ui")}`;
+  const words = text.split(" "), lines = []; let cur = "";
+  for (const w of words) {
+    const t = cur ? cur + " " + w : w;
+    if (ctx.measureText(t).width > max && cur) { lines.push(cur); cur = w; }
+    else cur = t;
+  }
+  if (cur) lines.push(cur);
+  return lines.slice(0, 2);
+}
+function ellipsize(text, max) {
+  ctx.font = `400 11px ${cssVar("--ui")}`;
+  if (ctx.measureText(text).width <= max) return text;
+  let cut = text;
+  while (cut.length > 1 && ctx.measureText(cut + "…").width > max) cut = cut.slice(0, -1);
+  return cut.trimEnd() + "…";
+}
+function anchor(p, tx, ty) {           // điểm biên của node hướng về (tx,ty)
+  const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+  const dx = tx - cx, dy = ty - cy;
+  if (!dx && !dy) return { x: cx, y: cy };
+  const sx = (p.w / 2 + 2) / Math.abs(dx || 1e-6), sy = (p.h / 2 + 2) / Math.abs(dy || 1e-6);
+  const s = Math.min(sx, sy);
+  return { x: cx + dx * s, y: cy + dy * s };
+}
+
+function draw() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  ctx.clearRect(0, 0, W, H);
+  const { pos, wide } = layout(W, H);
+  state.rects = pos;
+
+  const step = STEPS[state.step];
+  const inStep = new Set(step.nodes);
+  const pulse = state.motion ? 0.5 + 0.5 * Math.sin(state.t / 340) : 1;
+
+  /* 1 · cạnh trước, node đè lên */
+  for (const [from, to, kind] of EDGES) {
+    const a = pos.get(from), b = pos.get(to);
+    if (!a || !b) continue;
+    const p = anchor(a, b.x + b.w / 2, b.y + b.h / 2);
+    const q = anchor(b, a.x + a.w / 2, a.y + a.h / 2);
+    const live = inStep.has(from) && inStep.has(to);
+    const part = inStep.has(from) || inStep.has(to);
+
+    ctx.save();
+    ctx.lineWidth = live ? 2 : 1.25;
+    ctx.strokeStyle = live ? COL.ink : COL.line;
+    ctx.globalAlpha = live ? 0.85 : (part ? 0.55 : 0.32);
+    ctx.setLineDash(kind === "gate" ? [5, 4] : kind === "loop" ? [2, 3] : []);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2;
+    const bow = wide ? 0.12 : 0.2;
+    ctx.quadraticCurveTo(mx + (q.y - p.y) * bow, my - (q.x - p.x) * bow, q.x, q.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    /* mũi tên */
+    const ang = Math.atan2(q.y - my, q.x - mx);
+    ctx.beginPath();
+    ctx.moveTo(q.x, q.y);
+    ctx.lineTo(q.x - 7 * Math.cos(ang - 0.42), q.y - 7 * Math.sin(ang - 0.42));
+    ctx.lineTo(q.x - 7 * Math.cos(ang + 0.42), q.y - 7 * Math.sin(ang + 0.42));
+    ctx.closePath();
+    ctx.fillStyle = live ? COL.ink : COL.line;
+    ctx.fill();
+    ctx.restore();
+
+    /* packet chạy trên cạnh đang active */
+    if (live && state.motion) {
+      const speed = state.motion === 2 ? 0.00055 : 0.00042;
+      const t = ((state.t * speed) + (from.length * 0.13)) % 1;
+      const cxp = mx + (q.y - p.y) * bow, cyp = my - (q.x - p.x) * bow;
+      const bx = (1 - t) ** 2 * p.x + 2 * (1 - t) * t * cxp + t ** 2 * q.x;
+      const by = (1 - t) ** 2 * p.y + 2 * (1 - t) * t * cyp + t ** 2 * q.y;
+      ctx.save();
+      ctx.fillStyle = kind === "gate" ? COL.roles.human : COL.roles.engine;
+      ctx.globalAlpha = 0.95;
+      ctx.beginPath(); ctx.arc(bx, by, 3.6, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 0.22;
+      ctx.beginPath(); ctx.arc(bx, by, 7.5, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  /* 2 · khung "repo" cho project mode — nói rõ wiki nằm TRONG repo */
+  if (state.mode === "project" && wide) {
+    const wiki = pos.get("pages");
+    if (wiki) {
+      const x = wiki.x - 26, y = PAD.y - 6, w = W - wiki.x - wiki.w / 2 + 12, h = H - PAD.y * 2 + 4;
+      ctx.save();
+      ctx.setLineDash([6, 5]); ctx.strokeStyle = COL.ink3; ctx.lineWidth = 1;
+      rrect(x, y, Math.min(w, W - x - 8), h, 10); ctx.stroke(); ctx.setLineDash([]);
+      ctx.font = `500 11px ${cssVar("--mono")}`; ctx.fillStyle = COL.ink3;
+      ctx.fillText("<project root>/", x + 8, y + h + 14 > H ? y - 6 : y - 5);
+      ctx.restore();
+    }
+  }
+
+  /* 3 · node */
+  for (const [id, p] of pos) {
+    const n = p.n;
+    const live = inStep.has(id);
+    const hov = state.hover === id;
+    const dim = state.motion ? (live ? 1 : hov ? 1 : 0.62) : (live || hov ? 1 : 0.72);
+    const col = COL.roles[n.role], fill = COL.fills[n.role];
+    const fs = p.wide ? 12.5 : 13;
+
+    ctx.save();
+    ctx.globalAlpha = dim;
+    if (live) { ctx.shadowColor = col; ctx.shadowBlur = state.motion === 2 ? 16 * pulse + 6 : 8; }
+    rrect(p.x, p.y, p.w, p.h, 8);
+    ctx.fillStyle = COL.paper; ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.lineWidth = live ? 2.25 : hov ? 1.75 : 1.25;
+    ctx.strokeStyle = live || hov ? col : COL.line;
+    ctx.setLineDash(n.skill ? [4.5, 3.5] : []);
+    rrect(p.x, p.y, p.w, p.h, 8); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    /* Nhãn: tên tối đa 2 dòng + 1 dòng sub (ellipsis). CLIP vào node để chữ
+       không bao giờ tràn sang hàng xóm ở bất kỳ breakpoint nào. Sub bị bỏ nếu
+       không còn chỗ — thà thiếu một dòng phụ còn hơn đè chữ lên node khác. */
+    ctx.save();
+    ctx.globalAlpha = dim;
+    rrect(p.x, p.y, p.w, p.h, 8); ctx.clip();
+    ctx.fillStyle = COL.ink;
+    ctx.textBaseline = "top";
+    const L1 = wrap(n.label, p.w - 20, fs + 1, "600").slice(0, 2);
+    const withSub = L1.length * (fs + 3) + (n.sub ? fs : 0) <= p.h - 8;
+    let ty = p.y + (p.h - (L1.length * (fs + 3) + (withSub && n.sub ? fs : 0))) / 2;
+    ctx.font = `600 ${fs + 1}px ${cssVar("--ui")}`;
+    for (const l of L1) { ctx.fillText(l, p.x + 10, ty); ty += fs + 3; }
+    if (withSub && n.sub) {
+      ctx.font = `400 ${fs - 2}px ${cssVar("--ui")}`;
+      ctx.fillStyle = COL.ink2;
+      ctx.fillText(ellipsize(n.sub, p.w - 20), p.x + 10, ty + 1);
+    }
+    /* ký hiệu "LLM" = bước này cần skill; shape + text, không chỉ màu */
+    if (n.skill) {
+      ctx.font = `600 8.5px ${cssVar("--mono")}`; ctx.fillStyle = COL.ink2;
+      ctx.textBaseline = "bottom";
+      ctx.fillText("LLM", p.x + p.w - 10, p.y + p.h - 5);
+    }
+    ctx.restore();
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   3. LOOP — rAF, tự dừng khi tab ẩn / motion tắt (chỉ vẽ lại khi state đổi)
+   ═════════════════════════════════════════════════════════════════════════ */
+let raf = null, last = 0, stepClock = 0;
+const STEP_MS = 3600;
+function frame(ts) {
+  const dt = last ? ts - last : 16; last = ts;
+  state.t += dt;
+  if (state.playing) {
+    stepClock += dt;
+    if (stepClock > STEP_MS / Math.max(0.6, state.motion || 0.6)) { stepClock = 0; go((state.step + 1) % STEPS.length, true); }
+  }
+  draw();
+  raf = state.motion || state.playing ? requestAnimationFrame(frame) : null;
+}
+function kick() { if (!raf && (state.motion || state.playing)) { last = 0; raf = requestAnimationFrame(frame); } 
+                  if (!raf) draw(); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   4. SIZING — devicePixelRatio + đo chiều cao theo nội dung
+   ═════════════════════════════════════════════════════════════════════════ */
+function resize() {
+  const shell = cv.parentElement;
+  const w = shell.clientWidth;
+  const wide = w >= WIDE_BREAK;
+  const count = NODES.filter(n => activeNodes().has(n.id)).length;
+  const h = wide ? Math.round(Math.min(560, Math.max(430, w * 0.44)))
+                 : 76 * narrowRows(count) + 44;
+  shell.style.height = h + "px";
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  cv.style.height = h + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  readPalette();
+  draw();
+}
+new ResizeObserver(resize).observe(cv.parentElement);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   5. UI WIRING
+   ═════════════════════════════════════════════════════════════════════════ */
+const stepper = document.getElementById("stepper");
+STEPS.forEach((s, i) => {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "chip"; b.textContent = "";
+  b.innerHTML = `<span class="n">${String(i + 1).padStart(2, "0")}</span> ${s.title.replace(/^\d+ · /, "")}`;
+  b.addEventListener("click", () => go(i));
+  stepper.appendChild(b);
+});
+
+function go(i, auto) {
+  state.step = (i + STEPS.length) % STEPS.length;
+  const s = STEPS[state.step];
+  [...stepper.children].forEach((c, j) => c.setAttribute("aria-current", j === state.step ? "step" : "false"));
+  document.getElementById("r-title").textContent = s.title;
+  const over = (s.byMode || {})[state.mode] || {};
+  document.getElementById("r-body").innerHTML = s.body + (over.extra ? ` <strong>${over.extra}</strong>` : "");
+  document.getElementById("m-actor").innerHTML = `<span class="tag ${NODES.find(n=>n.id===s.nodes[0])?.role || "engine"}">${(s.actor.match(/^(SKILL|CLI|NGƯỜI|MCP|Người|AI)/) || ["Máy"])[0]}</span> &nbsp;${s.actor}`;
+  document.getElementById("m-place").textContent = s.place;
+  document.getElementById("m-cmd").textContent = s.cmd;
+  const act = s.byMode && s.byMode[state.mode] && s.byMode[state.mode].actor;
+  if (act) document.getElementById("m-actor").innerHTML = act;
+  stepper.children[state.step]?.scrollIntoView({ block: "nearest", inline: "center",
+    behavior: state.motion ? "smooth" : "auto" });
+  if (!auto) state.playing = false, syncPlay();
+  kick();
+}
+
+function syncPlay() {
+  const b = document.getElementById("play");
+  b.setAttribute("aria-pressed", String(state.playing));
+  b.querySelector(".lbl").textContent = state.playing ? "Dừng" : "Chạy tự động";
+  b.querySelector("span[aria-hidden]").textContent = state.playing ? "❚❚" : "▶";
+}
+
+document.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => {
+  state.mode = b.dataset.mode;
+  document.querySelectorAll("[data-mode]").forEach(x =>
+    x.setAttribute("aria-pressed", String(x === b)));
+  document.title = `llm-wiki — ${state.mode === "project" ? "project wiki" : "personal wiki"} hoạt động thế nào`;
+  go(state.step, true); resize();
+}));
+
+document.querySelectorAll("[data-motion]").forEach(b => b.addEventListener("click", () => {
+  state.motion = Number(b.dataset.motion);
+  document.querySelectorAll("[data-motion]").forEach(x =>
+    x.setAttribute("aria-pressed", String(x === b)));
+  kick();
+}));
+
+document.getElementById("prev").addEventListener("click", () => go(state.step - 1));
+document.getElementById("next").addEventListener("click", () => go(state.step + 1));
+document.getElementById("play").addEventListener("click", () => {
+  state.playing = !state.playing; if (state.playing && !state.motion) state.motion = 1,
+    document.querySelector('[data-motion="1"]').setAttribute("aria-pressed", "true");
+  syncPlay(); kick();
+});
+
+/* keyboard: ←/→ bước, space chạy/dừng (không bắt khi focus ở control khác) */
+addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (t && (t.tagName === "BUTTON" || t.tagName === "A" || t.tagName === "SUMMARY")) {
+    if (e.key === " " || e.key === "Enter") return;
+  }
+  if (e.key === "ArrowRight") { e.preventDefault(); go(state.step + 1); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); go(state.step - 1); }
+  else if (e.key === " ") { e.preventDefault(); document.getElementById("play").click(); }
+});
+
+/* hover / click node — hit test bằng rect đã cache lúc draw */
+function nodeAt(ev) {
+  const r = cv.getBoundingClientRect();
+  const x = ev.clientX - r.left, y = ev.clientY - r.top;
+  for (const [id, p] of state.rects) {
+    if (x >= p.x && x <= p.x + p.w && y >= p.y && y <= p.y + p.h) return { id, p, x, y };
+  }
+  return null;
+}
+cv.addEventListener("pointermove", (ev) => {
+  const hit = nodeAt(ev);
+  state.hover = hit ? hit.id : null;
+  cv.style.cursor = hit ? "pointer" : "";
+  if (hit) {
+    TIP.innerHTML = `<b>${hit.p.n.label}</b>${hit.p.n.sub ? `<code>${hit.p.n.sub}</code>` : ""}
+      ${hit.p.n.skill ? " — cần LLM (skill)" : ""}`;
+    TIP.dataset.show = "1";
+    const shell = cv.parentElement.getBoundingClientRect();
+    TIP.style.left = Math.min(shell.width - 250, Math.max(8, hit.x + 14)) + "px";
+    TIP.style.top = Math.max(8, hit.y - 54) + "px";
+  } else TIP.dataset.show = "0";
+  kick();
+});
+cv.addEventListener("pointerleave", () => { state.hover = null; TIP.dataset.show = "0"; kick(); });
+cv.addEventListener("click", (ev) => {
+  const hit = nodeAt(ev); if (!hit) return;
+  const i = STEPS.findIndex(s => s.nodes.includes(hit.id));
+  if (i >= 0) go(i);
+});
+
+/* bản chữ thay thế (đảm bảo nội dung không nằm kẹt trong canvas) */
+const alt = document.getElementById("alt-list");
+STEPS.forEach(s => {
+  const li = document.createElement("li");
+  li.innerHTML = `<strong>${s.title}</strong> — ${s.body.replace(/<[^>]+>/g, "")}
+    <br><span style="color:var(--ink-3);font:500 12.5px/1.6 var(--mono)">${s.place} · ${s.cmd.replace(/#/g, "").replace(/\n/g, "  ")}</span>`;
+  alt.appendChild(li);
+});
+
+go(0, true); syncPlay(); resize();
+</script>
+</body>
+</html>
