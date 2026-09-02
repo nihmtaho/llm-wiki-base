@@ -1,6 +1,6 @@
 # llm-wiki
 
-LLM-maintained wiki — compile knowledge 1 lần, maintain mãi. Hybrid BM25+vector search, MCP bridge, multi-base init (personal/project).
+LLM-maintained wiki — compile knowledge 1 lần, maintain mãi. Union retrieval (BM25 page + BM25 chunk + vector, RRF fusion) có eval harness, MCP bridge, multi-base init (personal/project).
 
 **Kiến trúc 2 lớp:**
 - **Global runtime** `~/.llm-wiki-base/` — tools, rag, scripts, 1 venv. Share giữa mọi wikis.
@@ -98,9 +98,10 @@ New-Item -ItemType SymbolicLink -Path "C:\Windows\llm-wiki.exe" -Target "$PWD\.v
 
 ```
 ~/.llm-wiki-base/                    # Global runtime (1 lần install)
-├── tools/                           #   ingest.py, lint.py, watch.py, mcp_base_server.py, db.py, ...
+├── tools/                           #   ingest.py, lint.py, watch.py, search.py, chunking.py, eval.py, mcp_base_server.py, db.py, ...
 ├── rag/                             #   embeddings.py, index.py, search.py
 ├── scripts/                         #   extract_url.py, extract_pdf.py, extract_youtube.py
+├── templates/                       #   eval-golden.toml (cho `tools/eval.py --init`)
 ├── .venv/                           #   1 Python venv cho mọi wikis
 ├── registry.toml                    #   centralized MCP: wiki name → path/type
 └── requirements.txt
@@ -115,16 +116,19 @@ my-wiki/                             # Per-wiki data (1 folder = 1 wiki)
 │   └── llm-wiki-translate/SKILL.md
 ├── raw/                             #   inbox/ + cache (gitignored, có thể xoá)
 ├── wiki/                            #   markdown + .wiki.db + .proposals/
-│   ├── index.md                     #     top-level TOC
-│   ├── log.md                       #     append-only reverse-chronological
-│   ├── .wiki.db                     #     SQLite + FTS5 search index
+│   ├── index.md                     #     top-level TOC (reserved — không chunk)
+│   ├── log.md                       #     append-only reverse-chronological (reserved — không chunk)
+│   ├── .wiki.db                     #     SQLite: pages + pages_fts + chunks_fts
 │   ├── .proposals/                  #     staging cho human-gated edits
 │   ├── pins.yml                     #     sửa tay của human (survives regenerate, optional)
 │   ├── alerts/                      #     hàng đợi gap từ review skill (optional)
 │   └── <domain>/                    #     N domain, mỗi domain có index.md + entity/concept/source/task/
+├── eval/                            #   đo chất lượng retrieval
+│   ├── golden.toml                  #     query vàng (dữ liệu — COMMIT)
+│   └── results.json                 #     lịch sử đo (gitignored)
 ├── rag/.rag_index/                  #   chunk embeddings (binary, per-wiki)
 ├── .env                             #   runtime paths (gitignored)
-└── .llm-wiki.toml                   #   behavior config: retrieval/review/lifecycle/lint/translate (commit)
+└── .llm-wiki.toml                   #   behavior config: retrieval/eval/review/lifecycle/lint/translate (commit)
 ```
 
 ---
@@ -176,11 +180,14 @@ Trong centralized MCP, dùng param `wiki=<name>` để target wiki, để trốn
 
 ```bash
 llm-wiki ingest raw/inbox/foo.md   # index 1 source vào search DB
-llm-wiki reindex                    # index tăng dần theo content-hash
-llm-wiki reindex --check            # dry-run: báo sẽ index/xoá gì + config drift
-llm-wiki reindex --full             # rebuild toàn bộ (sau khi đổi embed_model/chunk_tokens/vector)
+llm-wiki reindex                    # index tăng dần theo content-hash (+ chunks_fts)
+llm-wiki reindex --check            # dry-run: báo sẽ index/xoá gì + config drift + trạng thái chunk index
+llm-wiki reindex --full             # rebuild toàn bộ (sau khi đổi embed_model/chunk_tokens/vector/fusion)
 llm-wiki lint                       # health check deterministic (orphan, broken link, frontmatter, ...)
 llm-wiki lint --fix                 # xoá dangling rows + thêm index entries (additive)
+llm-wiki eval                       # đo retrieval trên query vàng: P@k / R@k / MRR (read-only)
+llm-wiki eval --compare             # so tier1-weighted / rrf-text / rrf+vector + verdict bật vector
+llm-wiki eval --init                # tạo eval/golden.toml từ template
 llm-wiki config show                # xem effective config (defaults + TOML + env override)
 llm-wiki verify wiki/<domain>/concept/x.md --by <human-id>   # human duyệt (set verified)
 llm-wiki verify <path> --unverify   # xoá verified (hạ về unverified)
@@ -250,16 +257,29 @@ Behavior config per-wiki, **commit** vào wiki repo (init tự tạo template). 
 
 ```toml
 [retrieval]
-vector = false          # BM25-only mặc định; bật sau khi eval cho thấy recall tụt
-chunk_tokens = 512      # chunk theo section (~token*4 chars)
-top_n_final = 8
-relax_recall = true     # AND-match 0 kết quả → retry OR một lần (CJK-safe)
+fusion = "rrf"            # "weighted" = hành vi cũ: rollback 1 dòng, cũng là baseline A-B
+chunk_bm25 = true         # kênh BM25 trên semantic chunks
+vector = false            # BM25-only mặc định; BẬT sau khi `llm-wiki eval --compare` cho thấy khá hơn
+rerank = "llm"            # skill layer rerank (Python không đọc key này)
+chunk_tokens = 512        # chunk theo section (~token*4 chars)
+top_k_bm25 = 20           # ứng viên mỗi kênh text
+top_k_vector = 20         # ứng viên kênh vector
+top_n_final = 8           # kết quả cuối + budget đọc của skill
+relax_recall = true       # giữ nguyên → AND sanitize → OR một lần (CJK-safe)
+
+[retrieval.weights]       # RRF chỉ nhạy tỉ số
+bm25_page = 1.0
+bm25_chunk = 1.0
+vector = 1.0
 
 [retrieval.index]
-embed_model = ""        # rỗng = builtin
+embed_model = ""          # rỗng = builtin
+
+[eval]
+k = 8                     # cutoff của `llm-wiki eval`
 
 [review]
-interval_days = 7       # review skill chỉ chạy full khi quá mốc
+interval_days = 7         # review skill chỉ chạy full khi quá mốc
 max_pages = 80
 
 [lifecycle]
@@ -269,7 +289,66 @@ default_stale_after_days = 180
 banned_terms = []
 ```
 
-Đổi `embed_model`/`chunk_tokens`/`vector` → chạy `llm-wiki reindex --full`. Runtime plumbing (đường dẫn) vẫn qua `.env` + env vars.
+Đổi `embed_model`/`chunk_tokens`/`vector`/`fusion` → chạy `llm-wiki reindex --full`. Runtime plumbing (đường dẫn) vẫn qua `.env` + env vars.
+
+Env override: `WIKI_EMBED_MODEL`, `WIKI_FUSION`, `WIKI_CHUNK_BM25`, `WIKI_BM25_WEIGHT`, `WIKI_VEC_WEIGHT` (2 cái cuối chỉ chi phối khi `fusion = "weighted"`). Installer **không** pin chúng vào MCP entry nữa — pin ở đó làm `.llm-wiki.toml` bị vô hiệu trong MCP (env > TOML) nhưng CLI vẫn đọc, tức cùng wiki ra hai kết quả khác nhau.
+
+---
+
+## Retrieval & eval
+
+**Union retrieval + RRF** (`wiki_search` / `tools/search.py`): 3 kênh xếp hạng độc lập rồi gộp bằng **reciprocal rank fusion trên hạng** — không cộng thẳng score vì `bm25()` và cosine khác thang hoàn toàn.
+
+| kênh | hạ tầng | ghi chú |
+|---|---|---|
+| `bm25_page` | FTS5 `pages_fts` (wiki + raw) | luôn chạy |
+| `bm25_chunk` | FTS5 `chunks_fts` trong `.wiki.db` | bắt được term hiếm nằm sâu trong page dài |
+| `vector_chunk` | `rag/.rag_index/{chunks.json,vectors.npy}` | chỉ khi `vector = true` |
+
+Mỗi kết quả có `matched_by` (kênh nào tìm ra) + `rank` + `snippet` (có thể là **text của một chunk** → đủ để CHỌN page, không đủ để trả lời). Chunk của 2 kênh dùng chung `tools/chunking.py` nên cùng ranh giới; `index.md`/`log.md` (reserved), bản dịch `*.lang.md`, frontmatter và footnote verbatim **không** được chunk.
+
+**Rerank ở skill layer** (`[retrieval].rerank = "llm"`): skill xin `top_k` rộng hơn (`2 × top_n_final`), chấm ứng viên bằng title/snippet/`matched_by`, rồi mới mở `top_n_final` page. Không thêm reranker model vào code.
+
+**Fallback tất định**: thiếu model / chưa build chunk → từng kênh tự tắt, vẫn chạy BM25. "Không model" ≠ "hỏng".
+
+**Đo, đừng đoán**:
+
+```bash
+llm-wiki eval --init          # tạo eval/golden.toml (đó là dữ liệu — COMMIT)
+llm-wiki eval                 # P@k / R@k / MRR theo config hiện tại
+llm-wiki eval --compare       # tier1-weighted / rrf-text / rrf+vector + verdict
+llm-wiki eval --compare -v    # thêm số liệu từng query
+```
+
+`eval/golden.toml` chứa query thật + danh sách concept chấp nhận được; eval sẽ cảnh báo `relevant path KHÔNG khớp page nào trong DB` thay vì âm lặng tính điểm sai. Kết quả append `eval/results.json` (gitignored) kèm fingerprint config để so sánh theo thời gian. `zero_recall_queries` = wiki thiếu tài liệu (việc của ingest), không phải retriever dở. Nếu một kênh chết **vì lỗi**, eval in `[ERROR] kênh bị tắt vì lỗi` — vì số liệu của profile đó khi đó là giả.
+
+Điều kiện bật vector: ΔR@k của profile `+vector` dương rõ rệt trên bộ query vàng của *chính wiki đó*. Ở scale nhỏ (< ~100k token) BM25 thường đã đủ — mặc định tắt là có chủ đích.
+
+**Cái bẫy đã đo được của RRF** (trên một wiki thật, 18 query / 21 page): với weight bằng nhau, page đứng hạng *giữa ở cả hai* kênh (đồng thuận) có thể bị page hạng 1 ở một kênh + hạng 11 ở kênh kia chèn mất ngay sát cutoff — text-only RRF vì thế **mất** một query mà weighted-sum cũ tìm ra. Hai đòn bẩy, đo ra:
+
+- `rrf_k` **không phải** đòn bẩy: sweep 20 → 250 cho số liệu giống hệt nhau trên corpus này.
+- `[retrieval.weights].bm25_page = 2.0` cứu lại query đó (R@8 bằng vector) nhưng **MRR tụt** dưới cả rrf-text → chỉ dùng khi không muốn bật vector.
+- `vector = true` cho cả recall lẫn first-hit tốt nhất trong phép đo đó (kênh vector bắt được paraphrase không trùng từ, đúng case mà text fail).
+
+Tóm lại: RRF tốt hơn weighted-sum về *độ phủ*, không tự động tốt hơn về *first hit*. Đó là lý do có eval harness thay vì tin vào lý thuyết rank-fusion.
+
+**Limitation đã biết**: `wiki/log.md` vẫn là một *page* (nên vẫn xuất hiện trong `bm25_page`); chỉ phần *chunk* của nó bị loại. Hướng xử lý sau này: `[retrieval] exclude_from_index` (xem `docs/tier3-roadmap.md`).
+
+---
+
+## Nâng cấp từ bản trước
+
+```bash
+pip install -e . && llm-wiki base install       # 1. sync code → ~/.llm-wiki-base/
+cd <wiki-cũ> && llm-wiki reindex --full         # 2. build chunks_fts + sửa FTS duplicate rows
+cd <wiki-cũ> && llm-wiki init personal -c claude  # 3. refresh skills + MCP env (trả lời yes)
+```
+
+- Bước 2 bắt buộc một lần: incremental reindex bỏ qua page không đổi content-hash, nên wiki cũ sẽ không bao giờ có chunk nếu không `--full`.
+- Bước 3: `init` **không** ghi đè `.llm-wiki.toml` (guard exists) → cấu hình của bạn giữ nguyên, key mới tự lấy default; nhưng skills là bản copy nên cần refresh.
+- Thứ tự rank của `wiki_search` **đổi** so với bản trước (RRF thay weighted sum). Muốn hành vi cũ: `fusion = "weighted"` trong `.llm-wiki.toml`.
+- `semantic_search` không còn trả chunk của `index.md`/`log.md` (chủ đích).
+- Code cũ vẫn mở DB mới bình thường (`chunks_fts` chỉ bị code mới đọc).
 
 ---
 
@@ -295,15 +374,18 @@ MCP = cầu nối cho AI tool, **KHÔNG** viết thẳng wiki:
 
 | Tool | Vai trò |
 |---|---|
-| `wiki_search(query, top_k)` | Hybrid BM25 + vector search |
-| `semantic_search(query, top_k)` | Chunk-level vector search |
-| `wiki_read(path)` | Đọc 1 file |
-| `wiki_list(domain, kind)` | Liệt kê pages, filter |
-| `list_raw_source(subdir)` | Liệt kê files trong raw/ |
-| `read_raw_source(name, subdir)` | Đọc raw source |
-| `wiki_submit(title, content, domain, source)` | **Ghi vào `raw/inbox/`** (KHÔNG wiki) |
-| `wiki_propose_edit(path, content)` | Staging vào `wiki/.proposals/` |
-| `wiki_lint()` | Health-check |
+| `wiki_search(query, top_k, wiki)` | **Union retrieval + RRF**: `bm25_page` ∪ `bm25_chunk` ∪ `vector_chunk`; mỗi kết quả có `matched_by` + `rank` + `snippet` (có thể là chunk text). `top_k` = kết quả cuối, `0` = theo `top_n_final` |
+| `semantic_search(query, top_k, wiki)` | Chunk-level vector search thô (chỉ để tìm concept, không phải nguồn trả lời) |
+| `wiki_read(path, wiki)` | Đọc 1 file |
+| `wiki_list(domain, kind, wiki)` | Liệt kê pages, filter |
+| `list_raw_source(subdir, wiki)` | Liệt kê files trong raw/ |
+| `read_raw_source(name, subdir, wiki)` | Đọc raw source |
+| `wiki_submit(title, content, wiki, ...)` | **Ghi vào `raw/inbox/`** (KHÔNG wiki) |
+| `wiki_propose_edit(path, content, wiki)` | Staging vào `wiki/.proposals/` |
+| `wiki_lint(wiki)` | Health-check |
+
+Rerank **không phải MCP tool** — đó là bước LLM trong skill `llm-wiki-query` /
+`wiki-project-research` (xem `[retrieval].rerank`).
 
 ---
 

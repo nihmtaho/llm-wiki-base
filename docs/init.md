@@ -61,15 +61,19 @@ Edit `.env` đã được init:
 WIKI_EMBED_MODEL=your-model-name
 WIKI_EMBED_DIM=768  # phải khớp model
 
-# Tune hybrid search
-WIKI_BM25_WEIGHT=0.4
+# Tune retrieval (ưu tiên cao hơn .llm-wiki.toml)
+WIKI_FUSION=weighted      # quay lại hành vi cũ (default: rrf)
+WIKI_CHUNK_BM25=0         # tắt kênh BM25 chunk-level
+WIKI_BM25_WEIGHT=0.4      # chỉ có ý nghĩa khi fusion=weighted
 WIKI_VEC_WEIGHT=0.6
 
 # Watch intervals (nếu dùng watch.py)
 WATCH_INGEST_SEC=10
 ```
 
-Đổi embedding model → phải rebuild `rag/.rag_index/`.
+Hầu hết tuning nên nằm trong **`.llm-wiki.toml`** (`[retrieval]`, `[retrieval.weights]`,
+`[eval]`) thay vì env — file đó commit vào wiki repo, `llm-wiki config show` cho thấy
+giá trị nào đến từ đâu. Đổi embedding model → phải `llm-wiki reindex --full`.
 
 ## 4. Thêm nguồn đầu tiên
 

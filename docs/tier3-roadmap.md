@@ -1,32 +1,46 @@
-# Tier 3 — Roadmap (deferred)
+# Tier 3 — Roadmap
 
-Nguồn: đánh giá `docs/human-ideas/my-idea/` (OKF v0.2 bundle) — các ý đã áp Tier 1 + Tier 2 (xem plan
-`~/.commandcode/plans/llm-wiki-tier1-tier2-implementation.md`). Đây là phần **chưa áp**, lưu để làm sau
-khi có tín hiệu cần thiết (scale lớn hơn, multi-agent, eval harness). Thứ tự theo giá trị/chi phí.
+Nguồn: đánh giá `docs/human-ideas/my-idea/` (OKF v0.2 bundle). Tier 1 + Tier 2 đã áp
+(plan `~/.commandcode/plans/llm-wiki-tier1-tier2-implementation.md`). **Gói retrieval
+(§1–§3 dưới đây) đã áp ngày 2026-09-02** — plan `~/.commandcode/plans/llm-wiki-tier3-retrieval.md`,
+chi tiết trong `docs/session/session-tier3-retrieval-2026-09-02.md`. Phần còn lại giữ
+để làm khi có tín hiệu cần thiết (scale lớn hơn, multi-agent, portability).
 
-## 1. Eval harness → điều kiện bật vector (ưu tiên cao khi wiki lớn)
+## ĐÃ LÀM (2026-09-02) — gói retrieval
 
-- Bộ query vàng (20–50 query thật từ usage) + metric **P@k / R@k / MRR**.
-- Script đo: chạy `hybrid_search` BM25-only vs BM25+vector, so sánh trên query vàng.
-- **Điều kiện bật `vector = true`**: eval cho thấy recall tụt khi BM25-only. Trước đó giữ mặc định tắt.
-- Lưu kết quả eval vào `wiki/.eval/` (gitignored) để so sánh theo thời gian.
+### 1. Eval harness → điều kiện bật vector ✅
+- `llm-wiki eval` (`tools/eval.py`): P@k / R@k / MRR trên `eval/golden.toml` (query vàng, COMMIT).
+- `--compare` chạy 3 profile: `tier1-weighted` (baseline) / `rrf-text` / `rrf+vector` + verdict.
+- `eval/results.json` (gitignored) append kèm fingerprint config → so sánh theo thời gian.
+- `zero_recall_queries` = wiki thiếu tài liệu (việc của ingest), không phải retriever dở.
+- Kênh chết **vì lỗi** được in `[ERROR] kênh bị tắt vì lỗi` — tránh số liệu giả.
 
-## 2. Union retrieval + RRF + rerank
+### 2. Union retrieval + RRF ✅ (rerank vẫn ở skill layer)
+- `tools/search.py`: 3 kênh `bm25_page` / `bm25_chunk` / `vector_chunk` → **RRF trên hạng**
+  (`rrf_k`, `[retrieval.weights]`). Bỏ full-table-scan page embeddings ở chế độ RRF.
+- `fusion = "weighted"` giữ nguyên đường code Tier 1 → rollback 1 dòng + baseline đo được.
+- MCP `wiki_search`: gộp cross-wiki bằng RRF trên hạng-per-wiki + khử trùng `(wiki, path)`.
+- Kết quả có `matched_by` + `rank` + `snippet` là chunk text → skill dùng để rerank.
+- **Còn deferred**: reranker **cross-encoder** trong Python (dep ONNX + model). Hiện rerank
+  là bước LLM trong skill (`[retrieval].rerank = "llm"`), theo đúng ý roadmap cũ.
 
-- Hiện tại: weighted sum BM25 + cosine (page-level) — không rank-fusion.
-- Nâng cấp: **union** BM25(top_k) ∪ vector(top_k) → khử trùng → **RRF** (reciprocal rank fusion)
-  thay weighted sum (ổn định hơn vì BM25 score scale khác cosine) → `top_n_final`.
-- **Rerank**: cross-encoder (ONNX, thêm dep) hoặc LLM của tool đang chạy (giống cách translate).
-  Rerank ở skill layer (query/research skill chọn lại top_n_final từ kết quả search) trước khi
-  thêm vào code — tránh dep nặng.
-- Config sẵn có: `[retrieval] mode`, `top_k_bm25`, `top_k_vector`, `top_n_final`.
+### 3. Chunk-level BM25 (FTS trên chunks) ✅
+- Bảng `chunks_fts` trong `.wiki.db` (FTS5 standalone, `page_id`/`path` UNINDEXED).
+- `tools/chunking.py` — chunker **dùng chung** với `rag/index.py` → 2 kênh cùng ranh giới.
+- Sync trong `search.index_file` → ingest/reindex/watch tự động; `SCHEMA_VERSION` 2→3 ép
+  `reindex --full` một lần cho wiki cũ.
+- Không chunk: reserved `index.md`/`log.md`, `*.lang.md`, frontmatter, footnote verbatim.
 
-## 3. Chunk-level BM25 (FTS trên chunks)
+### 3b. Limitation còn lại của gói retrieval (nếu cần, làm sau)
+- `wiki/log.md` **vẫn là một page** → vẫn xuất hiện trong `bm25_page` (chỉ phần chunk bị loại).
+  Hướng xử lý: `[retrieval] exclude_from_index = ["wiki/log.md"]` (lint + search + rag đọc chung).
+- Eval chỉ đo 1 wiki; đường gộp cross-wiki của MCP chưa có metric riêng.
+- `pages.embedding` vẫn được ghi nhưng RRF không đọc (chỉ `fusion="weighted"` dùng) →
+  candidate để bỏ nếu không ai rollback.
 
-- Hiện tại: BM25 page-level (FTS5 trên `pages`), chunk chỉ dùng cho vector.
-- Nâng cấp: bảng `chunks_fts` (FTS5 trên chunk text) → BM25 chunk-level, fuse với vector chunk-level.
-- Lợi ích khi wiki dài (page nghìn dòng): recall chính xác hơn theo section.
-- Đi kèm: `reindex` incremental đã sẵn sàng (chunks có file-hash).
+---
+
+## CÒN LẠI
 
 ## 4. OKF v0.2 full conformance
 
@@ -83,5 +97,8 @@ khi có tín hiệu cần thiết (scale lớn hơn, multi-agent, eval harness).
 
 ---
 
-*Ưu tiên đề xuất: 1 (eval) → 2 (RRF+rerank) → 3 (chunk BM25) khi wiki vượt ~100k token; 4–5 khi cần
-portability/codebase profile thật; 6–7 khi multi-agent/automation trở thành use case thực tế.*
+*Ưu tiên còn lại: **4–5** khi cần portability / codebase profile thật; **6–7** khi multi-agent hoặc
+automation trở thành use case thực tế; **8–10** rẻ và không phá gì, làm khi có nhu cầu cụ thể.
+Trong nhóm retrieval: `exclude_from_index` (§3b) là bước tiếp theo đáng làm nhất nếu wiki của bạn
+có `log.md` dài chiếm kết quả; cross-encoder rerank chỉ khi dùng wiki ngoài AI tool
+(script/dashboard) mà vẫn cần chất lượng rerank.*
