@@ -22,10 +22,10 @@ Local-first. Python + SQLite (FTS5 BM25) + vector (fastembed on-device).
 | **Dùng cho** | Knowledge wiki cá nhân | Wiki cho project codebase |
 | **Init location** | In-place (cwd) | `<root>/<wiki-dir>/` subfolder |
 | **MCP** | Auto-install (centralized) | Auto-install (centralized) |
-| **Skills** | `llm-wiki-{ingest,query,lint,review,consolidate,translate}` | `wiki-project-{research,plan,ingest,lint,review,consolidate,mcp}` |
-| **Skill location** | `<wiki>/.agents/skills/` (per-wiki) | `<wiki>/.agents/skills/` (per-wiki) |
+| **Skills** | `llm-wiki-{ingest,query,lint,reindex,review,consolidate,translate}` | cùng bộ + `llm-wiki-research` ở root repo |
+| **Skill location** | `<wiki>/.agents/skills/` (per-wiki) | `<wiki>/.agents/skills/` + `<root>/.agents/skills/` (research) |
 
-2 base không xung đột — skill prefix khác nhau. MCP là centralized (`llm-wiki-base-mcp`),
+2 base dùng chung tên skill — khác nhau ở `[wiki].profile`, không ở bộ skill. MCP là centralized (`llm-wiki-base-mcp`),
 1 server entry trên máy, đọc `registry.toml` để biết các wiki.
 
 ---
@@ -107,10 +107,11 @@ New-Item -ItemType SymbolicLink -Path "C:\Windows\llm-wiki.exe" -Target "$PWD\.v
 └── requirements.txt
 
 my-wiki/                             # Per-wiki data (1 folder = 1 wiki)
-├── .agents/skills/                  #   Skills per-wiki (AI tool load từ đây)
+├── .agents/skills/                  #   7 skill wiki-scoped (+ .llm-wiki-skills.json manifest)
 │   ├── llm-wiki-ingest/SKILL.md
 │   ├── llm-wiki-query/SKILL.md
 │   ├── llm-wiki-lint/SKILL.md
+│   ├── llm-wiki-reindex/SKILL.md
 │   ├── llm-wiki-review/SKILL.md
 │   ├── llm-wiki-consolidate/SKILL.md
 │   └── llm-wiki-translate/SKILL.md
@@ -151,30 +152,40 @@ llm-wiki init                                     # guided flow
 
 # Personal wiki (data + MCP + skills, in-place)
 llm-wiki init personal
-llm-wiki init personal --name "My Knowledge"
-llm-wiki init personal --client claude --client opencode  # MCP clients
+llm-wiki init personal --name "My Knowledge" --lang vi
+llm-wiki init personal -c claude -c opencode -c commandcode   # MCP clients
+llm-wiki init personal --mcp-scope project        # .mcp.json ở repo thay vì config cá nhân
 llm-wiki init personal --no-mcp                  # skip centralized MCP
-llm-wiki init personal --skills-target claude    # .claude/skills/ + symlink
-llm-wiki init personal --skills-target both      # copy cả 2
+llm-wiki init personal --no-register             # không ghi registry.toml (test/script)
+llm-wiki init personal --skills-target claude    # + symlink .claude/skills/
+llm-wiki init personal --skills-target both      # + .opencode/commands/
 llm-wiki init personal --no-skills               # skip skill install
 
-# Project wiki (data + centralized MCP + registry + skills)
-llm-wiki init project --client claude --client opencode
+# Project wiki (data + centralized MCP + registry + skills 2 scope)
+llm-wiki init project -c claude -c opencode
 llm-wiki init project --wiki-dir project-wiki    # subfolder name
+llm-wiki init project --lang vi
+llm-wiki init project --mcp-scope project        # .mcp.json tại root repo (commit được)
 llm-wiki init project --no-mcp                   # skip centralized MCP
 llm-wiki init project --server-name my-wiki-mcp  # custom centralized server name
-llm-wiki init project --skills-target universal   # default
+llm-wiki init project --no-register              # tránh làm bẩn registry khi test
 ```
+
+Client chấp nhận: `claude`, `opencode`, `zed`, `commandcode`. `--mcp-scope project`
+chỉ có tác dụng với `claude`/`commandcode` (`<root>/.mcp.json`, key `mcpServers`);
+opencode/zed chỉ có user scope. Init in ra **đường dẫn file vừa ghi + key + scope**.
 
 ### Wiki management (centralized MCP registry)
 
 ```bash
-llm-wiki wiki list                           # list all registered wikis
+llm-wiki wiki list                           # name + id + path + type
 llm-wiki wiki add my-wiki /path/to/wiki --type personal  # register existing wiki
-llm-wiki wiki remove my-wiki                 # unregister (files không bị xóa)
+llm-wiki wiki remove my-wiki                 # unregister (files không bị xóa); accept id
 ```
 
-Trong centralized MCP, dùng param `wiki=<name>` để target wiki, để trống để cross-wiki search.
+Mỗi wiki có `name` (key tra cứu, dễ đọc — dùng làm tham số `wiki=`) và `id` (UUID
+máy sinh, ổn định). Trùng `name` mà khác path → init **tự thêm hậu tố `-<uuid8>`**
+thay vì đá wiki cũ khỏi registry im lặng. Param `wiki=` của MCP accept cả hai.
 
 ### Per-wiki operations (cwd = wiki dir)
 
@@ -188,11 +199,25 @@ llm-wiki lint --fix                 # xoá dangling rows + thêm index entries (
 llm-wiki eval                       # đo retrieval trên query vàng: P@k / R@k / MRR (read-only)
 llm-wiki eval --compare             # so tier1-weighted / rrf-text / rrf+vector + verdict bật vector
 llm-wiki eval --init                # tạo eval/golden.toml từ template
+llm-wiki proposals list             # đề xuất của AI đang chờ duyệt (+ độ lớn diff)
+llm-wiki proposals show <name>      # metadata + unified diff so với page hiện tại
+llm-wiki proposals apply <name> [--by <human-id>]   # ghi vào page + log + reindex + xoá proposal
+llm-wiki proposals discard <name> --force           # từ bỏ proposal
+llm-wiki proposals new -t wiki/x/y.md -f body.md    # tạo proposal từ CLI (cùng format MCP)
 llm-wiki config show                # xem effective config (defaults + TOML + env override)
 llm-wiki verify wiki/<domain>/concept/x.md --by <human-id>   # human duyệt (set verified)
 llm-wiki verify <path> --unverify   # xoá verified (hạ về unverified)
 llm-wiki watch                      # daemon: scan inbox → ingest → reindex → lint (+ nhắc review due)
+llm-wiki doctor                     # kiểm môi trường + nói rõ việc gì cần AI tool
 ```
+
+`llm-wiki doctor` check: base runtime, `tools/` có lệch với package không (báo
+`llm-wiki base install`), deps trong base venv (`mcp`, `fastembed`, `tomli`),
+registry (path ma, wiki thiếu id), wiki hiện tại (có `.llm-wiki.toml`, có
+`[wiki].profile`, đã đăng ký chưa, còn proposal tồn đọng), và cuối cùng là bảng
+**việc bắt buộc có AI tool** — vì `llm-wiki` không gọi LLM: nó làm phần tất định,
+còn ingest-ra-page / review / consolidate / translate / rerank là skill.
+FAIL → exit 1; WARN → vẫn 0.
 
 ### Translation
 
@@ -207,27 +232,40 @@ llm-wiki translate check --lang vi               # verify đồng bộ
 
 ## Skills
 
-Skills được copy vào `<wiki>/.agents/skills/` khi init. AI tool load từ đây (không phải từ global base).
+8 skill, **không còn chia tên personal/project** — chế độ đọc từ `[wiki].profile`
+(`personal` | `codebase`) trong `.llm-wiki.toml`. Cài đặt khi `llm-wiki init`, chia 2 scope:
 
-| Skill | Base | Vai trò |
+| Skill | Scope | Vai trò |
 |---|---|---|
-| `llm-wiki-ingest` | personal | Nạp source mới, auto-detect domain, cross-link, update index/log |
-| `llm-wiki-query` | personal | Search wiki, tổng hợp trả lời có cite + trust tier flag |
-| `llm-wiki-lint` | personal | Health-check TẤT ĐỊNH: orphan, broken link, frontmatter, index sync |
-| `llm-wiki-review` | personal | Health-check SINH SINH: mâu thuẫn, stale, trust gap → `wiki/alerts/` |
-| `llm-wiki-consolidate` | personal | Gộp log/mẩu rải rác → concept canonical (additive, distill-verify) |
-| `llm-wiki-translate` | personal | Dịch page sang target lang (dùng LLM của AI tool) |
-| `wiki-project-research` | project | Research codebase bằng wiki (ưu tiên) + codegraph (fallback) |
-| `wiki-project-plan` | project | Plan mode workflow cho task lớn |
-| `wiki-project-ingest` | project | Nạp source vào project-wiki (tech doc, PR, architecture note) |
-| `wiki-project-lint` | project | Health-check TẤT ĐỊNH + thu thập code path cho review |
-| `wiki-project-review` | project | Health-check SINH SINH: contradiction, stale code reference → `wiki/alerts/` |
-| `wiki-project-consolidate` | project | Gộp log/mẩu → concept canonical |
+| `llm-wiki-ingest` | wiki | raw → source/entity/concept page + cross-link + index/log + reindex |
+| `llm-wiki-query` | wiki | trả lời từ **wiki đang đứng**: retrieval → rerank → cite → file synthesis |
+| `llm-wiki-lint` | wiki | health-check TẤT ĐỊNH: orphan, broken link, frontmatter, index sync |
+| `llm-wiki-reindex` | wiki | dựng/chẩn đoán chỉ mục derived: `--check`, `--full`, lệch kênh |
+| `llm-wiki-review` | wiki | Health-check SINH SINH: mâu thuẫn, stale, trust gap → `wiki/alerts/` |
+| `llm-wiki-consolidate` | wiki | Gộp log/mẩu rải rác → concept canonical (additive, distill-verify) |
+| `llm-wiki-translate` | wiki | Dịch page sang `[translate].langs` (dùng LLM của AI tool) |
+| `llm-wiki-research` | **codebase root** | Research **xuyên nhiều wiki** qua centralized MCP + đối chiếu personal ↔ project |
 
-**`--skills-target`:**
-- `universal` (default): `<wiki>/.agents/skills/` — AI tool universal scan.
-- `claude`: `<wiki>/.claude/skills/` + symlink `.agents/skills/` → `.claude/skills/`.
-- `both`: copy cả 2 (duplicate, nhưng explicit).
+`llm-wiki-research` cài ở `<root_repo>/.agents/skills/` chứ **không** nằm trong wiki:
+nó cần thấy mọi wiki, còn skill wiki-scoped chỉ lo một wiki.
+
+**Phân phối:** `.agents/skills/` là bản canonical duy nhất.
+
+| `--skills-target` | kết quả |
+|---|---|
+| `universal` (default) | copy vào `.agents/skills/` + symlink cho client được chọn qua `-c` |
+| `claude` | như trên + chắc chắn link `.claude/skills/` |
+| `both` | link cả `.claude/skills/` và `.opencode/commands/` |
+| `skip` | không cài (`--no-skills`) |
+
+- **Command Code** đọc `.agents/skills/` (project) và `~/.agents/skills/` (user) trực tiếp → không cần link; tạo `.commandcode/skills/` sẽ bị ưu tiên cao hơn và sinh cảnh báo trùng tên.
+- **Claude Code**: dir symlink `.claude/skills/<name>` → `.agents/skills/<name>`.
+- **OpenCode**: file symlink `.opencode/commands/<name>.md` → `.agents/skills/<name>/SKILL.md`.
+- Windows không có quyền symlink → tự fallback sang copy.
+
+**Prune:** skill đổi tên/gộp ở bản cũ (`wiki-project-*`) bị xoá khi re-init, nhưng chỉ
+những thứ do llm-wiki cài (ghi danh trong `.agents/skills/.llm-wiki-skills.json`) —
+skill bạn tự viết cùng folder được giữ nguyên.
 
 ---
 
@@ -256,10 +294,14 @@ llm-wiki translate check --lang vi   # verify đồng bộ (frontmatter keys + h
 Behavior config per-wiki, **commit** vào wiki repo (init tự tạo template). Precedence: env var > TOML > builtin default.
 
 ```toml
+[wiki]
+profile = "personal"      # personal | codebase — skill đọc để chọn chế độ (init set đúng)
+lang = "en"               # ngôn ngữ agent VIẾT page (không phải đích dịch)
+
 [retrieval]
 fusion = "rrf"            # "weighted" = hành vi cũ: rollback 1 dòng, cũng là baseline A-B
 chunk_bm25 = true         # kênh BM25 trên semantic chunks
-vector = false            # BM25-only mặc định; BẬT sau khi `llm-wiki eval --compare` cho thấy khá hơn
+vector = true             # bật mặc định từ 2026-09-02 (đo được); tắt nếu eval của chính wiki không cho Δ>0
 rerank = "llm"            # skill layer rerank (Python không đọc key này)
 chunk_tokens = 512        # chunk theo section (~token*4 chars)
 top_k_bm25 = 20           # ứng viên mỗi kênh text
@@ -274,6 +316,12 @@ vector = 1.0
 
 [retrieval.index]
 embed_model = ""          # rỗng = builtin
+
+[models]                  # HỢP ĐỒNG SKILL LAYER — Python không gọi LLM, không đọc key này
+light = ""                # model để WRITE (sinh concept)
+heavy = ""                # model để VERIFY/review
+provider = ""             # openai-compatible | anthropic | ollama; rỗng = dùng LLM của AI tool
+api_key_env = ""          # TÊN biến env chứa key — không bao giờ ghi key thẳng vào file
 
 [eval]
 k = 8                     # cutoff của `llm-wiki eval`
@@ -290,6 +338,8 @@ banned_terms = []
 ```
 
 Đổi `embed_model`/`chunk_tokens`/`vector`/`fusion` → chạy `llm-wiki reindex --full`. Runtime plumbing (đường dẫn) vẫn qua `.env` + env vars.
+
+`llm-wiki init` bật sẵn `vector = true` trong template (có bằng chứng đo, ghi ngay trong comment của file). Hai key `chunk_tokens` và `rrf_k` **đã đo là không có tác dụng** trên wiki nhỏ (256/512/1024 cho cùng số chunk khi mọi section đều ngắn; sweep `rrf_k` 20→250 cho số liệu giống hệt) — đừng đổi chúng cho đến khi eval của chính wiki bạn chỉ ra khác biệt.
 
 Env override: `WIKI_EMBED_MODEL`, `WIKI_FUSION`, `WIKI_CHUNK_BM25`, `WIKI_BM25_WEIGHT`, `WIKI_VEC_WEIGHT` (2 cái cuối chỉ chi phối khi `fusion = "weighted"`). Installer **không** pin chúng vào MCP entry nữa — pin ở đó làm `.llm-wiki.toml` bị vô hiệu trong MCP (env > TOML) nhưng CLI vẫn đọc, tức cùng wiki ra hai kết quả khác nhau.
 
@@ -322,7 +372,7 @@ llm-wiki eval --compare -v    # thêm số liệu từng query
 
 `eval/golden.toml` chứa query thật + danh sách concept chấp nhận được; eval sẽ cảnh báo `relevant path KHÔNG khớp page nào trong DB` thay vì âm lặng tính điểm sai. Kết quả append `eval/results.json` (gitignored) kèm fingerprint config để so sánh theo thời gian. `zero_recall_queries` = wiki thiếu tài liệu (việc của ingest), không phải retriever dở. Nếu một kênh chết **vì lỗi**, eval in `[ERROR] kênh bị tắt vì lỗi` — vì số liệu của profile đó khi đó là giả.
 
-Điều kiện bật vector: ΔR@k của profile `+vector` dương rõ rệt trên bộ query vàng của *chính wiki đó*. Ở scale nhỏ (< ~100k token) BM25 thường đã đủ — mặc định tắt là có chủ đích.
+Điều kiện bật vector: ΔR@k của profile `+vector` dương rõ rệt trên bộ query vàng của *chính wiki đó*. Template mới bật sẵn `vector = true` vì có bằng chứng đo (dưới); wiki cũ nâng cấp vẫn `false` cho tới khi bạn tự `eval --compare`. Ở scale rất nhỏ (< ~50k token) BM25 thường đã đủ.
 
 **Cái bẫy đã đo được của RRF** (trên một wiki thật, 18 query / 21 page): với weight bằng nhau, page đứng hạng *giữa ở cả hai* kênh (đồng thuận) có thể bị page hạng 1 ở một kênh + hạng 11 ở kênh kia chèn mất ngay sát cutoff — text-only RRF vì thế **mất** một query mà weighted-sum cũ tìm ra. Hai đòn bẩy, đo ra:
 
@@ -339,16 +389,22 @@ Tóm lại: RRF tốt hơn weighted-sum về *độ phủ*, không tự động 
 ## Nâng cấp từ bản trước
 
 ```bash
-pip install -e . && llm-wiki base install       # 1. sync code → ~/.llm-wiki-base/
-cd <wiki-cũ> && llm-wiki reindex --full         # 2. build chunks_fts + sửa FTS duplicate rows
+pip install -e . && llm-wiki base install         # 1. sync code → ~/.llm-wiki-base/
+cd <wiki-cũ> && llm-wiki reindex --full           # 2. build chunks_fts + sửa FTS duplicate rows
 cd <wiki-cũ> && llm-wiki init personal -c claude  # 3. refresh skills + MCP env (trả lời yes)
+llm-wiki doctor                                   # 4. kiểm còn thiếu gì
 ```
 
 - Bước 2 bắt buộc một lần: incremental reindex bỏ qua page không đổi content-hash, nên wiki cũ sẽ không bao giờ có chunk nếu không `--full`.
 - Bước 3: `init` **không** ghi đè `.llm-wiki.toml` (guard exists) → cấu hình của bạn giữ nguyên, key mới tự lấy default; nhưng skills là bản copy nên cần refresh.
+- **Skills đổi tên + gộp** (bản này): 13 skill personal/project → 8 skill `llm-wiki-*` profile-aware. Re-init sẽ **tự xoá** `wiki-project-*` cũ và giữ skill bạn tự viết. Project wiki còn nhận thêm `llm-wiki-research` ở **root repo**.
+- **Wiki bật `vector = true` mặc định** (template mới). Wiki cũ giữ `false` cho tới khi bạn `eval --compare`; đổi sang true thì `reindex --full` để dựng `rag/.rag_index`.
+- Registry có thêm **`id` (UUID)** cho mỗi wiki; `wiki add`/`init` lại sẽ gán. Trùng tên khác path không còn đá nhau im lặng.
+- `llm-wiki init` có `--no-register` (và env `LLM_WIKI_REGISTRY`) để test không ghi vào registry thật.
 - Thứ tự rank của `wiki_search` **đổi** so với bản trước (RRF thay weighted sum). Muốn hành vi cũ: `fusion = "weighted"` trong `.llm-wiki.toml`.
 - `semantic_search` không còn trả chunk của `index.md`/`log.md` (chủ đích).
 - Code cũ vẫn mở DB mới bình thường (`chunks_fts` chỉ bị code mới đọc).
+- `llm-wiki proposals list|show|apply|discard` là lệnh mới để duyệt `wiki/.proposals/`; proposal cũ (không metadata) cần `apply --target <path>` tường minh.
 
 ---
 
@@ -385,7 +441,20 @@ MCP = cầu nối cho AI tool, **KHÔNG** viết thẳng wiki:
 | `wiki_lint(wiki)` | Health-check |
 
 Rerank **không phải MCP tool** — đó là bước LLM trong skill `llm-wiki-query` /
-`wiki-project-research` (xem `[retrieval].rerank`).
+`llm-wiki-research` (xem `[retrieval].rerank`).
+
+**Cài MCP cho client** (`llm-wiki init -c ...`):
+
+| client | user scope | project scope | key |
+|---|---|---|---|
+| `claude` | `<AppSupport>/claude/mcp_servers.json` (fallback `~/.claude/`) | `<root>/.mcp.json` | `mcpServers` |
+| `commandcode` | `~/.commandcode/mcp.json` | `<root>/.mcp.json` | `mcpServers` |
+| `opencode` | `<AppSupport>/opencode/opencode.json` (fallback `~/.opencode/`) | không có | `mcp` |
+| `zed` | `<AppSupport>/Zed/settings.json` (fallback `~/.zed/`) | không có | `context_servers` |
+
+`--mcp-scope project` ghi entry vào `.mcp.json` ở root repo để cả team dùng qua VCS.
+Installer không pin env retrieval nào vào entry (env > TOML, pin sẽ làm
+`.llm-wiki.toml` của wiki vô hiệu riêng trong MCP).
 
 ---
 

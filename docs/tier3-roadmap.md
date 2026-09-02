@@ -38,6 +38,21 @@ chi tiết trong `docs/session/session-tier3-retrieval-2026-09-02.md`. Phần c�
 - `pages.embedding` vẫn được ghi nhưng RRF không đọc (chỉ `fusion="weighted"` dùng) →
   candidate để bỏ nếu không ai rollback.
 
+### Gói skills + MCP + config + naming + proposals ✅ (cùng ngày, đợt 2)
+Nguồn: `docs/human-ideas/improve/tasks.md`. Chi tiết trong
+`docs/session/session-tier3-skills-mcp-config-2026-09-02.md`.
+- 13 skill personal/project → **8 skill `llm-wiki-*` profile-aware** (chế độ đọc
+  `[wiki].profile`); thêm `llm-wiki-reindex`; `research` tách khỏi `query` và cài ở
+  **root codebase**; `plan` + `mcp` gộp vào `query`/`research`; `translate` giữ + sửa
+  bug không bao giờ được cài cho project wiki.
+- Phân phối: `.agents/skills/` canonical + symlink cho claude/opencode (port
+  `link_skills.sh` — code chết — sang Python, có prune); commandcode không cần link.
+- MCP: thêm client `commandcode`, `--mcp-scope user|project`, in rõ path + key + scope.
+- Registry: `name` + `id` (UUID), trùng tên khác path → hậu tố `-<uuid8>`; `--no-register`.
+- `[wiki].profile`/`lang`, `[models]` (schema), `vector = true` mặc định mới.
+- `llm-wiki proposals list|show|apply|discard|new` + metadata target trong proposal.
+- `llm-wiki doctor` + error path thống nhất cho CLI wrapper.
+
 ---
 
 ## CÒN LẠI
@@ -94,6 +109,21 @@ chi tiết trong `docs/session/session-tier3-retrieval-2026-09-02.md`. Phần c�
 - Script migrate frontmatter page cũ: flat `sources` → dict form, thêm `generated`, `confidence` →
   `verified` mapping (`human-verified` → `verified.by = human`).
 - `llm-wiki migrate` — dry-run trước, chỉ chạy khi số page cũ đáng kể.
+
+## 11. Headless ingest — `[models]` providers + LLM client thật
+
+- `tasks.md` đòi "config thêm providers cho wiki → ingest không cần mở agent tool".
+  **Đã làm một nửa có chủ đích**: section `[models]` (`light`/`heavy`/`provider`/
+  `api_key_env`) đã nằm trong config + template, nhưng Python **không đọc** nó và không
+  gọi LLM — `llm-wiki doctor` nói rõ điều đó.
+- Phần còn lại (client OpenAI-compatible/Anthropic để `llm-wiki ingest --headless` chạy
+  từ cron/watch) **chưa làm**, và không nên làm vội: ingest thật là quy trình nhiều bước
+  (plan concept đích, chống fork theo `status: planned`, tôn trọng pins, cập nhật
+  index/log, distill-verify) — một lần call API không thay được skill + loop của agent.
+  Chi phí thật sẽ là: thêm dependency, quản lý API key, token cost không có gate, và
+  phải tự viết lại cơ chế "AI proposes, human decides".
+- Nếu làm: bắt đầu từ thứ **đã có cấu trúc rõ** thay vì ingest — `translate` (đầu vào/ra
+  xác định, đã có `translate check` để nghiệm thu) rồi mới đến review/consolidate.
 
 ---
 
