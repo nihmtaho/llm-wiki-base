@@ -188,15 +188,19 @@ def main():
     with open(INDEX_META_FILE, "w", encoding="utf-8") as f:
         json.dump(current, f, ensure_ascii=False, indent=2)
 
-    if drift:
-        print(
-            "[warn] config đổi so với lần reindex trước — "
-            "chạy `llm-wiki reindex --full` để rebuild embeddings + chunk index "
-            "theo config mới"
-        )
+    # meta đã ghi ở trên = config hiện tại, nên sau lần chạy này drift không còn.
+    # Chỉ cảnh báo khi chạy INCREMENTAL mà config đổi — đúng lúc user còn việc phải làm.
+    if drift and not args.full:
+        print("[warn] config đổi so với lần reindex trước ("
+              + ", ".join(sorted(drift)) + ") — incremental bỏ qua page không đổi "
+              "content-hash, nên chạy `llm-wiki reindex --full` để rebuild "
+              "embeddings + chunk index theo config mới")
 
     if not current["vector"]:
         print("vector skipped (retrieval.vector=false) — BM25/FTS vẫn chạy")
+        if drift and (RAG_DIR / ".rag_index" / "chunks.json").exists():
+            print("  rag/.rag_index đang có sẵn nhưng có thể lệch config — không sao, "
+                  "không kênh nào đọc nó khi vector=false")
         return
     r = rag_index.build_index(full=args.full)
     print(f"rag index rebuilt: {r} chunks")

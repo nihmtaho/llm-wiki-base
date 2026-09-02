@@ -3,9 +3,26 @@
 # Precedence: env var > giá trị trong file này > builtin default.
 # Bỏ comment key muốn đổi; phần còn lại lấy default.
 
+[wiki]
+profile = "personal"          # personal | codebase — init project set "codebase".
+                              # Skill đọc key này để biết có phải verify code path,
+                              # tách intent/observation, hay dùng domain tech-stack.
+lang = "en"                   # ngôn ngữ agent PHẢI viết page khi ingest/consolidate.
+                              # `translate.langs` là đích dịch, KHÔNG phải ngôn ngữ gốc.
+
 [translate]
-enabled = false             # true → ingest tự gọi skill llm-wiki-translate cho mỗi page mới
-langs = []                  # vd ["vi", "ja"]
+enabled = false               # true → ingest tự gọi skill llm-wiki-translate cho mỗi page mới
+langs = []                    # vd ["vi", "ja"]
+
+[models]
+# HỢP ĐỒNG CHO SKILL LAYER — Python pipeline KHÔNG gọi LLM và không đọc section này.
+# Khai ở đây để skill biết model nào nên dùng cho WRITE vs VERIFY; đổi model chỉ sửa
+# một chỗ. Muốn ingest chạy KHÔNG cần AI tool (headless/cron) thì cần LLM client thật
+# — việc đó chưa làm, xem docs/tier3-roadmap.md.
+light = ""                    # WRITE: sinh concept (vd "claude-sonnet-5")
+heavy = ""                    # VERIFY/review: kiểm ngữ nghĩa (adversarial)
+provider = ""                 # openai-compatible | anthropic | ollama — rỗng = dùng LLM của AI tool đang mở
+api_key_env = ""              # TÊN biến môi trường chứa key. KHÔNG bao giờ ghi key thẳng vào file này.
 
 [retrieval]
 # Union retrieval: 3 kênh xếp hạng riêng → fusion. Xem `llm-wiki eval --compare`.
@@ -13,12 +30,17 @@ mode = "hybrid"             # bm25 (chỉ kênh text) | hybrid (thêm kênh vect
 fusion = "rrf"              # rrf (mặc định) | weighted (hành vi Tier 1 — dùng để rollback/A-B)
 rrf_k = 60                  # hằng số RRF; nhỏ hơn = ưu tiên hạng cao hơn mạnh hơn
 chunk_bm25 = true           # kênh BM25 trên semantic chunks. Wiki cũ: chạy `reindex --full` 1 lần
-vector = false              # BẬT sau khi `eval --compare` cho thấy recall tụt (mặc định tắt)
+vector = true               # BẬT mặc định (đo 2026-09-02: R@8 0.9167→0.9722, MRR 0.8518→0.8981
+                            # so với text-only, trên 18 query vàng). Tắt nếu: máy không có
+                            # fastembed, hoặc `eval --compare` của CHÍNH wiki này không cho Δ>0.
 rerank = "llm"              # off | llm — HỢP ĐỒNG SKILL LAYER (query/research), Python không đọc
-chunk_tokens = 512          # chunk theo section, ~chunk_tokens*4 chars (xấp xỉ token)
+chunk_tokens = 512          # chunk theo section, ~chunk_tokens*4 chars. CHỈ có tác dụng khi một
+                            # section dài hơn mức đó — đo: wiki page ngắn thì 256/512/1024 ra
+                            # cùng số chunk. Đổi key này → `reindex --full`.
 top_k_bm25 = 20             # số ỨNG VIÊN mỗi kênh text (không phải kết quả cuối)
 top_k_vector = 20           # số ứng viên kênh vector
 top_n_final = 8             # số concept trả về cuối sau fusion — cũng là budget đọc của skill
+                            # (đo: k=12 thêm ~0.03 R@k nhưng -30% precision, không đáng)
 relax_recall = true         # AND-match 0 kết quả → thử lại OR một lần (CJK-safe)
 bm25_weight = 0.5           # CHỈ chi phối khi fusion="weighted"; env override: WIKI_BM25_WEIGHT
 vec_weight = 0.5            # CHỈ chi phối khi fusion="weighted"; env override: WIKI_VEC_WEIGHT

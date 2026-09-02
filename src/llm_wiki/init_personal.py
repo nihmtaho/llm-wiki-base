@@ -18,6 +18,7 @@ from llm_wiki._package_data import read_template, template_exists
 from llm_wiki._skills import install_skills
 from llm_wiki.base import get_base_dir
 from llm_wiki.config import supported_clients
+from llm_wiki.config_file import ensure_wiki_identity
 from llm_wiki.installer import install_centralized_mcp, CENTRALIZED_SERVER_NAME
 from llm_wiki.registry import add_wiki
 
@@ -47,6 +48,9 @@ def run(
     skills_target: str = "universal",
     clients: list[str] | None = None,
     skip_mcp: bool = False,
+    mcp_scope: str = "user",
+    lang: str | None = None,
+    register: bool = True,
 ) -> None:
     wiki_name = name or cwd.name
     base_dir = get_base_dir()
@@ -105,6 +109,11 @@ def run(
             read_template("templates", "llm-wiki.toml"), encoding="utf-8"
         )
         console.print("  [green]✓[/green] .llm-wiki.toml (wiki config — commit file này)")
+    # `[wiki].profile` phải đúng loại wiki — skill đọc nó để chọn chế độ.
+    # Chạy cả khi file đã tồn tại (re-init wiki cũ chưa có section này).
+    if ensure_wiki_identity(cwd / ".llm-wiki.toml", profile="personal", lang=lang):
+        console.print("  [green]✓[/green] .llm-wiki.toml: \\[wiki\\].profile = personal"
+                      + (f", lang = {lang}" if lang else ""))
 
     # 5c. eval/golden.toml — bộ query vàng cho `llm-wiki eval` (commit vào wiki repo)
     if template_exists("templates", "eval-golden.toml"):
@@ -130,33 +139,49 @@ def run(
         console.print("  [green]✓[/green] .env (pointing to global base + MCP registry)")
 
     # 7. Registry — đăng ký wiki vào TOML (centralized MCP dùng để tìm wiki)
-    add_wiki(wiki_name, str(cwd), wiki_type="personal")
-    console.print(f"  [green]✓[/green] registry: '{wiki_name}' → {cwd}")
+    if register:
+        wiki_name = add_wiki(wiki_name, str(cwd), wiki_type="personal")
+        console.print(f"  [green]✓[/green] registry: '{wiki_name}' → {cwd}")
+    else:
+        console.print("  [dim]registry: BỎ QUA (--no-register) — AI tool sẽ không thấy "
+                      "wiki này qua `wiki=`[/dim]")
 
     # 8. Install centralized MCP config (default — not optional)
+    mcp_results: list = []
+    mcp_failed: list[tuple[str, str]] = []
     if not skip_mcp:
         cli_clients = clients or ["claude"]
         console.print()
         console.print("[bold]Install centralized MCP config:[/bold]")
         for client in cli_clients:
             if client not in supported_clients():
-                console.print(f"  [red]✗[/red] unknown client '{client}'. Supported: {supported_clients()}")
+                console.print(f"  [red]✗[/red] unknown client '{client}'. "
+                              f"Hỗ trợ: {', '.join(supported_clients())}")
+                mcp_failed.append((client, "client không được hỗ trợ"))
                 continue
             try:
-                cfg_path = install_centralized_mcp(client)
-                console.print(f"  [green]✓[/green] {client}: {cfg_path}")
+                res = install_centralized_mcp(client, scope=mcp_scope,
+                                              project_root=cwd if mcp_scope == "project" else None)
+                mcp_results.append(res)
+                console.print(f"  [green]✓[/green] {res.describe()}")
             except Exception as e:
+                mcp_failed.append((client, str(e)))
                 console.print(f"  [red]✗[/red] {client}: {e}")
     else:
-        console.print("  [yellow]![/yellow] MCP init skipped (--no-mcp)")
+        console.print("  [yellow]![/yellow] MCP init skipped (--no-mcp) — "
+                      "AI tool sẽ KHÔNG thấy wiki này qua `wiki=`")
 
-    # 9. Install skills per-wiki
+    # 9. Install skills. Personal wiki = 1 folder duy nhất nên wiki scope và
+    #    codebase scope trùng nhau → cài "all" vào cwd.
+    installed: list[str] = []
     if skills_target != "skip":
-        installed = install_skills(cwd, target=skills_target, base_skills_dir="personal")
+        installed = install_skills(cwd, target=skills_target, subset="all",
+                                   clients=clients or [])
         if installed:
-            console.print(f"  [green]✓[/green] .agents/skills/: {', '.join(installed)}")
+            console.print(f"  [green]✓[/green] {cwd}/.agents/skills/: {', '.join(installed)}")
         else:
-            console.print("  [yellow]![/yellow] skills source not found")
+            console.print("  [yellow]![/yellow] không cài được skill nào — kiểm tra package "
+                          "data (`llm-wiki base install` lại sau khi nâng cấp)")
 
     # 10. Done
     console.print()
@@ -165,15 +190,22 @@ def run(
     console.print(f"  Data:        {cwd}/")
     console.print(f"  Base runtime: {base_dir}/ (global, shared)")
     console.print(f"  Registry:    '{wiki_name}' in centralized MCP registry")
-    if not skip_mcp:
-        console.print(f"  MCP:         {CENTRALIZED_SERVER_NAME} — installed in client config")
-    if skills_target != "skip":
-        console.print(f"  Skills:      copied to {cwd}/.agents/skills/ (per-wiki, scope = personal)")
+    for res in mcp_results:
+        console.print(f"  MCP {res.client:<11} {res.describe()}")
+    if skip_mcp:
+        console.print("  MCP:         [dim]bỏ qua[/dim]")
+    elif mcp_failed:
+        console.print(f"  MCP:         [red]LỖI với {', '.join(c for c, _ in mcp_failed)}[/red] "
+                      "— sửa rồi chạy lại init này (nó idempotent, không phá dữ liệu)")
+    if installed:
+        console.print(f"  Skills:      {cwd}/.agents/skills/ (scope = wiki này + cross-wiki research)")
     console.print()
     console.print("Next steps:")
     console.print(f"  1. Drop sources vào: {cwd}/raw/inbox/")
-    console.print(f"  2. Chạy từ trong wiki dir: [cyan]llm-wiki ingest raw/inbox/<file>[/cyan]")
-    console.print(f"  3. AI tool sẽ load skills + MCP tools từ: [cyan]{cwd}/.agents/skills/[/cyan]")
-    console.print(f"  4. MCP search: wiki_search(query, wiki='{wiki_name}') hoặc để trống để search all")
+    console.print(f"  2. Ingest thật sự = chạy skill [bold]llm-wiki-ingest[/bold] trong AI tool "
+                  f"(CLI `llm-wiki ingest` chỉ index file đã có, không viết page)")
+    console.print(f"  3. AI tool load skills từ [cyan]{cwd}/.agents/skills/[/cyan] — "
+                  "Command Code đọc `.agents/skills/` trực tiếp; Claude/OpenCode đã được link")
+    console.print(f"  4. MCP search: wiki_search(query, wiki='{wiki_name}'), hoặc wiki=\"\" để search mọi wiki")
     if not skip_mcp:
-        console.print(f"  5. Reload AI client để pick up MCP server")
+        console.print("  5. [bold]Khởi động lại AI tool[/bold] — MCP process cũ giữ registry trong memory")

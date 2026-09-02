@@ -36,6 +36,7 @@ if str(_TOOLS_DIR) not in sys.path:
 
 import db
 import lint as lintmod
+import proposals as proposalsmod
 import search
 from config_file import get_config, effective
 from embed import EmbedProvider, DEFAULT_MODEL
@@ -109,8 +110,16 @@ def _load_registry() -> list[dict]:
 
 
 def _wiki_entry(name: str) -> dict | None:
-    """Tìm wiki entry theo name trong registry."""
-    return next((w for w in _load_registry() if w.get("name") == name), None)
+    """Tìm wiki entry theo name HOẶC id (registry có cả hai từ bản có UUID).
+
+    Name được ưu tiên trước khi thử id.
+    """
+    wikis = _load_registry()
+    for key in ("name", "id"):
+        entry = next((w for w in wikis if w.get(key) == name), None)
+        if entry is not None:
+            return entry
+    return None
 
 
 def _set_wiki_ctx(wiki_name: str) -> tuple[str, Path]:
@@ -571,14 +580,9 @@ def wiki_propose_edit(path: str, content: str, wiki: str) -> dict:
     if entry is None:
         return _err(f"wiki '{wiki}' không có trong registry. Chạy `llm-wiki wiki list`")
     root, _ = _set_wiki_ctx(wiki)
-    proposals_dir = Path(root) / "wiki" / ".proposals"
     if _resolve_in_wiki(wiki, path) is None:
         return _err(f"target path ngoài wiki root của '{wiki}': {path}")
-    proposals_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(path))
-    prop_path = proposals_dir / f"{stamp}__{safe}"
-    prop_path.write_text(content, encoding="utf-8")
+    prop_path = proposalsmod.stage(root, path, content, by="mcp", wiki=wiki)
     log.info("proposal staged: %s → %s (wiki=%s)", prop_path.relative_to(root), path, wiki)
     return {
         "staged": str(prop_path.relative_to(root)),

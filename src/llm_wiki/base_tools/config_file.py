@@ -18,17 +18,30 @@ except ImportError:
 
     CONFIG_FILE = ".llm-wiki.toml"
 
+    # PHẢI KHỚP KEY-FOR-KEY với llm_wiki/config_file.py DEFAULTS (bản package).
+    # `llm-wiki doctor` so 2 bản và báo lỗi nếu lệch — lệch ở đây nghĩa là CLI và
+    # tools/ (base venv) dùng default khác nhau cho cùng một wiki.
     DEFAULTS: dict = {
+        "wiki": {
+            "profile": "personal",       # personal | codebase — skill đọc key này
+            "lang": "en",                # ngôn ngữ agent viết page
+        },
         "translate": {
             "enabled": False,
             "langs": [],
+        },
+        "models": {                      # hợp đồng skill layer; Python KHÔNG gọi LLM
+            "light": "",
+            "heavy": "",
+            "provider": "",
+            "api_key_env": "",
         },
         "retrieval": {
             "mode": "hybrid",            # bm25 | hybrid
             "fusion": "rrf",             # rrf | weighted (weighted = hành vi Tier 1)
             "rrf_k": 60,
             "chunk_bm25": True,
-            "vector": False,
+            "vector": True,              # xem lý do + số liệu ở bản package
             "rerank": "llm",             # off | llm — skill layer đọc, Python không dùng
             "chunk_tokens": 512,
             "top_k_bm25": 20,

@@ -57,9 +57,9 @@ llm-wiki eval --compare  # đo retrieval: P@k/R@k/MRR cho 3 profile (read-only)
 
 Lint (tất định): orphan, broken-wikilink, missing-file (CRITICAL), missing-frontmatter, status-vocab, timestamp-format, footnote-sources-match, stale-after-passed, missing-index-entry, pin-orphan, `sources-no-local-path`, `body-no-raw-inbox-wikilink`, dense-bullet/indent-depth/banned-terms (advisory).
 
-Review (sinh sinh, skill `llm-wiki-review` / `wiki-project-review`): contradiction, stale claim, stale code reference (project), khái niệm thiếu, trust gap, pin conflict → gaps vào `wiki/alerts/` (`kind: alert, status: open`); không nêu lại 2 lần liên tiếp → tự đóng. Cadence `[review].interval_days` (watch in `[review] due`).
+Review (sinh sinh, skill `llm-wiki-review`): contradiction, stale claim, stale code reference (profile codebase), khái niệm thiếu, trust gap, pin conflict → gaps vào `wiki/alerts/` (`kind: alert, status: open`); không nêu lại 2 lần liên tiếp → tự đóng. Cadence `[review].interval_days` (watch in `[review] due`).
 
-Consolidate (skill `llm-wiki-consolidate` / `wiki-project-consolidate`): gộp log/mẩu rải rác → concept canonical; additive; distill-verify (citation không co); trùng → `superseded` + `x_supersedes`.
+Consolidate (skill `llm-wiki-consolidate`): gộp log/mẩu rải rác → concept canonical; additive; distill-verify (citation không co); trùng → `superseded` + `x_supersedes`.
 
 Trust tier: page có `generated: {by, at}`; human duyệt = `llm-wiki verify <path> --by <id>` (set `verified`, cả personal + project). AI KHÔNG tự set `verified`; đổi judgment → `--unverify`.
 

@@ -31,34 +31,54 @@ def user_config_base() -> Path:
 
 
 # Convention cho từng client. App name casing tuỳ OS (capitalized trên macOS theo Apple HIG).
+#
+# Mỗi client có 2 scope MCP:
+#   user    → file config cá nhân, mọi project đều thấy (mặc định khi init)
+#   project → `<root>/.mcp.json`, commit vào VCS để cả team dùng (Claude Code +
+#             Command Code cùng convention `mcpServers`; OpenCode/Zed KHÔNG có
+#             project-scope MCP file nào trong convention của chúng → chỉ user).
+# `project_mcp` = None nghĩa là scope đó không tồn tại cho client này.
 CLIENT_PATHS: dict[str, dict] = {
     "claude": {
         "config_dir": "claude",                  # lowercase everywhere
         "mcp_file": "mcp_servers.json",
         "skills_dir": "skills",
         "fallback_dir": Path.home() / ".claude", # legacy ~/ path
+        "project_mcp": ".mcp.json",
     },
     "opencode": {
         "config_dir": "opencode",
         "mcp_file": "opencode.json",             # full config, key "mcp"
         "skills_dir": "commands",                # flat .md files
         "fallback_dir": Path.home() / ".opencode",
+        "project_mcp": None,                     # không có project-scope MCP file
     },
     "zed": {
         "config_dir": "Zed",                     # capital Z (Apple HIG)
         "mcp_file": "settings.json",
         "skills_dir": None,                      # Zed dùng rules, không có skill system
         "fallback_dir": Path.home() / ".zed",
+        "project_mcp": None,
+    },
+    "commandcode": {
+        # Command Code KHÔNG dùng XDG/Application Support — config nằm thẳng ở home.
+        "home_dir": ".commandcode",
+        "mcp_file": "mcp.json",
+        "skills_dir": None,                      # đọc `.agents/skills/` trực tiếp → không cần link
+        "fallback_dir": Path.home() / ".commandcode",
+        "project_mcp": ".mcp.json",
     },
 }
 
 
 def _resolve_with_fallback(client: str, key: str) -> Path | None:
-    """Trả path tới file/dir cho client. None nếu key=None (vd: Zed skills_dir)."""
+    """Trả path tới file/dir cho client. None nếu key=None (vd: skills_dir của Zed)."""
     spec = CLIENT_PATHS[client]
     sub = spec.get(key)
     if sub is None:
         return None
+    if spec.get("home_dir"):                      # client có config ở $HOME (commandcode)
+        return Path.home() / spec["home_dir"] / sub
     conventional = user_config_base() / spec["config_dir"] / sub
     if conventional.parent.exists():
         return conventional
@@ -66,11 +86,17 @@ def _resolve_with_fallback(client: str, key: str) -> Path | None:
 
 
 def get_mcp_config_path(client: str) -> Path:
-    """Trả path tới file MCP config của client. Tạo parent dir nếu cần (caller mkdir)."""
+    """Trả path tới file MCP config (user scope) của client. Caller tự mkdir parent."""
     p = _resolve_with_fallback(client, "mcp_file")
     if p is None:
         raise ValueError(f"{client} has no MCP config file")
     return p
+
+
+def get_project_mcp_path(client: str, project_root: Path) -> Path | None:
+    """Path MCP config PROJECT scope (`<root>/.mcp.json`). None nếu client không có."""
+    rel = CLIENT_PATHS[client].get("project_mcp")
+    return project_root / rel if rel else None
 
 
 def get_skills_dir(client: str) -> Path | None:
@@ -78,12 +104,22 @@ def get_skills_dir(client: str) -> Path | None:
     return _resolve_with_fallback(client, "skills_dir")
 
 
+def mcp_key(client: str) -> str:
+    """Tên key trong file config chứa danh sách server của client."""
+    return MCP_KEYS[client]
+
+
 # MCP config key khác nhau giữa các client
 MCP_KEYS: dict[str, str] = {
     "claude": "mcpServers",
     "opencode": "mcp",
     "zed": "context_servers",
+    "commandcode": "mcpServers",
 }
+
+
+def supports_project_scope(client: str) -> bool:
+    return bool(CLIENT_PATHS.get(client, {}).get("project_mcp"))
 
 
 def supported_clients() -> list[str]:

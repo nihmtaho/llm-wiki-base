@@ -22,12 +22,12 @@ from mcp.server.fastmcp import FastMCP
 
 import db
 import lint as lintmod
+import proposals as proposalsmod
 import search
 from embed import EmbedProvider
-from paths import WIKI_ROOT, WIKI_INDEX_FILE, WIKI_LOG_FILE, WIKI_PROPOSALS, RAW_INBOX, RAG_DIR, RAW_DIR
+from paths import WIKI_ROOT, WIKI_INDEX_FILE, WIKI_LOG_FILE, RAW_INBOX, RAG_DIR, RAW_DIR
 
 WIKI_ROOT = str(WIKI_ROOT)
-PROPOSALS_DIR = Path(WIKI_PROPOSALS)
 RAW_INBOX = Path(RAW_INBOX)
 RAW_DIR = Path(RAW_DIR)
 WIKI_DIR = Path(WIKI_ROOT) / "wiki"
@@ -267,11 +267,7 @@ def wiki_propose_edit(path: str, content: str) -> dict:
     """
     if _resolve(path) is None:
         return _err(f"target path ngoài WIKI_ROOT: {path}")
-    PROPOSALS_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(path))
-    prop_path = PROPOSALS_DIR / f"{stamp}__{safe}"
-    prop_path.write_text(content, encoding="utf-8")
+    prop_path = proposalsmod.stage(WIKI_ROOT, path, content, by="mcp")
     log.info("proposal staged: %s → %s", prop_path.relative_to(WIKI_ROOT), path)
     return {
         "staged": str(prop_path.relative_to(WIKI_ROOT)),
