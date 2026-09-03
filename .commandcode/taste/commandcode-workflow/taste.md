@@ -1,0 +1,7 @@
+# Command Code / headroom proxy — config + routing conventions
+
+- Routes Command Code traffic through the local headroom proxy by editing `~/.commandcode/providers.json` directly: set the BYOK provider `opencode-go`'s `baseURL` to `http://127.0.0.1:8787/v1`. The proxy is a passthrough that preserves the incoming `Authorization` header, so no key duplication is needed in Command Code's config. Confidence: 0.8
+- Always back up a config file before hand-editing it, using a suffixed copy that names the purpose/change: `providers.json` → `providers.json.bak-headroom` (not a generic `.bak` or `.old`). Confidence: 0.75
+- Known Command Code limitation: `cmd config set model` only accepts models from the built-in catalog — it rejects BYOK model IDs. BYOK models such as `opencode-go/*` must be selected through the interactive `/model` command or the `--model` CLI flag. Expect this constraint rather than treating it as a config bug. Confidence: 0.7
+- Diagnostic habit when proxy-routed traffic misbehaves: isolate the transport layer before concluding the proxy is broken. A 403 Cloudflare page returned while testing with Python's default `urllib` UA is a User-Agent block, not a proxy failure — re-test with a browser-like UA (or through the real client) before changing config. Confidence: 0.7
+- Knows the headroom Dashboard attributes Command Code's routed traffic to the agent labelled `openai` — so an "openai" entry in dashboard traffic for these sessions is expected, not a misrouting. Confidence: 0.6
