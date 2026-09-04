@@ -1,7 +1,7 @@
 ---
 # Claude Code (skill)
 name: llm-wiki-release
-description: 'Release llm-wiki-base (stable + beta) theo SemVer + Conventional Commits + Keep a Changelog, chỉ dùng git và gh CLI'
+description: 'Release llm-wiki-base (stable + beta) per SemVer + Conventional Commits + Keep a Changelog, using only git and gh CLI'
 # Cursor (.mdc / rule)
 alwaysApply: false
 globs: ["pyproject.toml", "src/llm_wiki/__init__.py", "CHANGELOG.md"]
@@ -15,29 +15,29 @@ applyTo: "pyproject.toml,CHANGELOG.md"
 ---
 # LLM Wiki Release
 
-Quy trình release chuẩn toàn cầu cho repo này, chỉ dùng `git` + `gh`:
-[SemVer 2.0.0](https://semver.org) + [Conventional Commits 1.0.0](https://www.conventionalcommits.org) + [Keep a Changelog 1.1.0](https://keepachangelog.com). Tag quy ước `vX.Y.Z` (khớp `llm-wiki upgrade`).
+The global-standard release process for this repo, using only `git` + `gh`:
+[SemVer 2.0.0](https://semver.org) + [Conventional Commits 1.0.0](https://www.conventionalcommits.org) + [Keep a Changelog 1.1.0](https://keepachangelog.com). Tag convention `vX.Y.Z` (matches `llm-wiki upgrade`).
 
-## 0. Preconditions — check trước mọi thứ
+## 0. Preconditions — check before anything else
 
 ```bash
-git status --short          # phải trống (không commit rác, không file môi trường)
-git branch --show-current   # phải là main
+git status --short          # must be empty (no junk commits, no env files)
+git branch --show-current   # must be main
 git fetch origin && git log --oneline origin/main -1 && git log --oneline -1
-# hai dòng trên phải cùng commit (main đã sync, không release từ branch)
-gh auth status              # phải logged in
-python3 -m pytest tests/ -q # phải xanh
+# both lines above must show the same commit (main synced, never release from a branch)
+gh auth status              # must be logged in
+python3 -m pytest tests/ -q # must be green
 ```
 
-Version có HAI nguồn phải khớp nhau: `pyproject.toml` (`version =`) và `src/llm_wiki/__init__.py` (`__version__ =`).
+The version has TWO sources that must match: `pyproject.toml` (`version =`) and `src/llm_wiki/__init__.py` (`__version__ =`).
 
-## 1. Chốt số version (SemVer)
+## 1. Pick the version number (SemVer)
 
-- Lần đầu: `v0.1.0` (`0.x` = API chưa ổn định, `1.0.0` khi public API ổn định).
-- Sau đó, đọc `git log <tag-cũ>..HEAD --oneline`: `feat` → MINOR, `fix`/`perf` → PATCH, `!` hoặc `BREAKING CHANGE` → MAJOR.
-- Không đoán: liệt kê commits cho user nếu không rõ loại thay đổi.
+- First time: `v0.1.0` (`0.x` = unstable API, `1.0.0` once the public API is stable).
+- After that, read `git log <prev-tag>..HEAD --oneline`: `feat` → MINOR, `fix`/`perf` → PATCH, `!` or `BREAKING CHANGE` → MAJOR.
+- Never guess: list the commits for the user if the change type is unclear.
 
-## 2. Bump version (cả hai file, một commit riêng nếu cần)
+## 2. Bump the version (both files, separate commit if needed)
 
 ```bash
 NEW=X.Y.Z
@@ -51,29 +51,29 @@ i = Path("src/llm_wiki/__init__.py"); s = i.read_text()
 i.write_text(re.sub(r'^__version__ = ".*"$', f'__version__ = "{new}"', s, count=1, flags=re.M))
 EOF
 grep -n 'version =\|__version__' pyproject.toml src/llm_wiki/__init__.py
-# hai dòng in ra phải cùng X.Y.Z rồi mới đi tiếp
+# both printed lines must show the same X.Y.Z before continuing
 ```
 
 ## 3. CHANGELOG.md (Keep a Changelog)
 
-Chưa có file thì tạo khung `## [Unreleased]` + `## [X.Y.Z] - YYYY-MM-DD` với nhóm `Added/Changed/Fixed`. Tóm từ conventional commits, viết cho user (không paste log thô).
+If the file does not exist yet, create the `## [Unreleased]` + `## [X.Y.Z] - YYYY-MM-DD` frame with `Added/Changed/Fixed` groups. Summarize from conventional commits, written for users (never paste raw log).
 
-## 4. Commit release
+## 4. Commit the release
 
 ```bash
 git add pyproject.toml src/llm_wiki/__init__.py CHANGELOG.md
-git status --short   # chỉ 3 file trên
+git status --short   # only the 3 files above
 git commit -m "chore(release): vX.Y.Z"
 ```
 
-## 5. Tag (annotated, trên main, sau commit)
+## 5. Tag (annotated, on main, after the commit)
 
 ```bash
 git tag -a vX.Y.Z -m "vX.Y.Z"
-git show vX.Y.Z --stat | head -n 10   # verify tag trỏ đúng commit release
+git show vX.Y.Z --stat | head -n 10   # verify the tag points at the release commit
 ```
 
-## 6. Push (không bao giờ --force main/tags)
+## 6. Push (never --force main/tags)
 
 ```bash
 git push origin main
@@ -83,40 +83,40 @@ git push origin vX.Y.Z
 ## 7. GitHub Release (gh CLI)
 
 ```bash
-gh release create vX.Y.Z --title "vX.Y.Z" --notes "Tóm tắt từ CHANGELOG:
+gh release create vX.Y.Z --title "vX.Y.Z" --notes "Summary from CHANGELOG:
 - ...
 - ..."
 gh release view vX.Y.Z   # verify
 ```
 
-## 7b. Beta release (prerelease, khi cần thử nghiệm trước stable)
+## 7b. Beta release (prerelease, when pre-stable testing is needed)
 
-Đánh số SemVer prerelease `X.Y.Z-beta.N` (`beta.1`, `beta.2`, ... cho cùng target stable; precedence thấp hơn stable nên không bao giờ thành `latest`).
+SemVer prerelease numbering `X.Y.Z-beta.N` (`beta.1`, `beta.2`, ... for the same stable target; precedence is lower than stable so it never becomes `latest`).
 
 ```bash
-NEW=X.Y.ZbN   # file version dùng dạng PEP 440 cho pip-safe (vd 0.2.0b1)
-# bump 2 file version như bước 2, CHANGELOG ghi mục ## [X.Y.Z-beta.N]
+NEW=X.Y.ZbN   # version files use PEP 440 form for pip safety (e.g. 0.2.0b1)
+# bump both version files as in step 2, CHANGELOG gets a ## [X.Y.Z-beta.N] entry
 git add pyproject.toml src/llm_wiki/__init__.py CHANGELOG.md
 git commit -m "chore(release): vX.Y.Z-beta.N"
 git tag -a vX.Y.Z-beta.N -m "vX.Y.Z-beta.N"
 git push origin main && git push origin vX.Y.Z-beta.N
-gh release create vX.Y.Z-beta.N --prerelease --title "vX.Y.Z-beta.N" --notes "Beta, cần thử:
+gh release create vX.Y.Z-beta.N --prerelease --title "vX.Y.Z-beta.N" --notes "Beta, please test:
 - ...
 - ..."
-gh release view vX.Y.Z-beta.N   # verify, phải hiện `Pre-release`
+gh release view vX.Y.Z-beta.N   # verify, must show `Pre-release`
 ```
 
-Lưu ý:
+Notes:
 
-- File version (`X.Y.ZbN`) và tag/release (`vX.Y.Z-beta.N`) khác dạng nhau là cố ý: pip chỉ hiểu PEP 440, GitHub chỉ nhận prerelease SemVer có gạch ngang.
-- `llm-wiki upgrade --to latest` bỏ qua beta theo thiết kế (chỉ match `vX.Y.Z` stable). Muốn thử beta: `git checkout vX.Y.Z-beta.N` (+ cài lại nếu không editable) rồi kiểm thủ công; `--to <beta>` hiện chưa hỗ trợ.
-- Lên stable: làm tiếp quy trình thường (bước 2–7) với `X.Y.Z`, CHANGELOG gộp mục beta vào mục stable. Không xóa beta release/tag sau khi stable ra (giữ lịch sử thử nghiệm).
+- File versions (`X.Y.ZbN`) and tag/release (`vX.Y.Z-beta.N`) differ on purpose: pip only understands PEP 440, GitHub prerelease only SemVer-with-hyphen.
+- `llm-wiki upgrade --to latest` skips betas by design (it only matches stable `vX.Y.Z`). To try a beta: `git checkout vX.Y.Z-beta.N` (+ reinstall unless editable) and verify manually; `--to <beta>` is currently unsupported.
+- Going stable: continue the normal process (steps 2–7) with `X.Y.Z`, folding the beta CHANGELOG entry into the stable one. Never delete beta releases/tags after stable lands (keep the testing history).
 
 ## 8. Post-release
 
-- `llm-wiki status` ở máy khác phải thấy latest mới.
-- Hỏng release: `gh release delete vX.Y.Z --yes && git push origin :vX.Y.Z && git tag -d vX.Y.Z`, sửa, làm lại từ bước 2 với PATCH+1. Không bao giờ dời tag đã có người dùng.
+- `llm-wiki status` on another machine must show the new latest.
+- Broken release: `gh release delete vX.Y.Z --yes && git push origin :vX.Y.Z && git tag -d vX.Y.Z`, fix, redo from step 2 with PATCH+1. Never move a tag anyone may use.
 
-## Cấm
+## Forbidden
 
-- Tag/commit release từ feature branch. Viết lại history đã push (`rebase/push --force/amend` sau push). Tag lightweight (thiếu `-a`, mất message/ngày). Release khi test đỏ hoặc tree bẩn.
+- Tagging/committing a release from a feature branch. Rewriting pushed history (`rebase`/`push --force`/`amend` after push). Lightweight tags (missing `-a`, no message/date). Releasing on red tests or a dirty tree.
