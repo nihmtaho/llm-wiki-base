@@ -51,6 +51,39 @@ def _copy_agent_configs(cwd: Path) -> list[str]:
     return copied
 
 
+RESEARCH_START = "<!-- LLM_WIKI_RESEARCH_START -->"
+RESEARCH_END = "<!-- LLM_WIKI_RESEARCH_END -->"
+
+
+def _upsert_marked_block(path: Path, block: str) -> bool:
+    """Append or refresh a marked block in a root agent file. Idempotent."""
+    start, end = RESEARCH_START, RESEARCH_END
+    if path.exists():
+        text = path.read_text(encoding="utf-8")
+        if start in text and end in text:
+            pre, _, rest = text.partition(start)
+            _, _, post = rest.partition(end)
+            path.write_text(f"{pre}{block}{post}", encoding="utf-8")
+            return True
+        path.write_text(f"{text.rstrip()}\n\n{block}\n", encoding="utf-8")
+        return True
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"{block}\n", encoding="utf-8")
+    return True
+
+
+def _ensure_root_research_block(root: Path) -> list[str]:
+    """Ensure root AGENTS.md + .claude/CLAUDE.md point at research skill."""
+    if not template_exists("templates", "agents", "research-block.md"):
+        return []
+    block = read_template("templates", "agents", "research-block.md").strip() + "\n"
+    touched: list[str] = []
+    for rel in ("AGENTS.md", ".claude/CLAUDE.md"):
+        if _upsert_marked_block(root / rel, block):
+            touched.append(rel)
+    return touched
+
+
 def run(
     root: Path,
     wiki_subdir: str,
@@ -207,12 +240,19 @@ def run(
             console.print("  [yellow]![/yellow] không cài được skill nào — kiểm tra "
                           "package data (`llm-wiki base install` lại sau khi nâng cấp)")
 
+    # 8b. Root research pointers (AGENTS.md + .claude/CLAUDE.md ở repo root)
+    research_touched = _ensure_root_research_block(root.resolve())
+    if research_touched:
+        console.print(f"  [green]✓[/green] root research block: {', '.join(research_touched)}")
+
     # 9. Done
     rows = [
         f"Data:         {wiki_dir}/",
         f"Base runtime: {base_dir}/ (global, shared)",
         f"Registry:     {server_name} server → registry.toml trong base dir",
     ]
+    if research_touched:
+        rows.append(f"Research:     {', '.join(research_touched)} (root, idempotent)")
     for res in mcp_results:
         rows.append(f"MCP {res.client:<11} {res.describe()}")
     if skip_mcp:
