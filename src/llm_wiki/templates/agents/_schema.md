@@ -1,88 +1,89 @@
-# Schema & Conventions
+# LLM Wiki — Schema
 
-Wiki là artifact tích luỹ do LLM maintain. Compile 1 lần, giữ current.
+Data contracts for the wiki. Workflows live in the runbook (`AGENTS.md`; `.claude/CLAUDE.md` only tags `@AGENTS.md`).
 
-## 3 đối tượng trong data flow
+The wiki is a cumulatively-built artifact maintained by an LLM. Compile once, keep current.
 
-- `raw/inbox/` — staging. File mới chờ ingest. Mutable khi người/AI thả vào.
-- `raw/` — **local cache** sau ingest (cả URL + no-URL). **Có thể xoá tùy ý** — provenance nằm trong `sources:` field của wiki page. Gitignored mặc định.
-- `wiki/` — markdown do LLM sinh/maintain. LLM sở hữu layer này. **Đây là knowledge thực sự** (curated, cross-linked, persistent).
-- `AGENTS.md` / `CLAUDE.md` — schema: quy ước + workflow vận hành.
+## Data flow
+
+- `raw/inbox/` — staging. New files awaiting ingest. Mutable while humans/AIs drop files in.
+- `raw/` — **local cache** post-ingest (URL and non-URL alike). **Deletable at will** — provenance lives in the page's `sources:` field. Gitignored by default.
+- `wiki/` — markdown generated/maintained by the LLM. The LLM owns this layer. **This is the real knowledge** (curated, cross-linked, persistent).
 
 Move rules:
-- Source có URL HOẶC không có URL → đều move từ `raw/inbox/` sang `raw/`. Phân biệt provenance chỉ trong `sources:` field (URL = strong, `[]` = weak).
-- `raw/inbox/` là staging only — files ở đây chưa ingest.
-- `raw/` (ngoài inbox) là local cache. User có thể xoá tùy ý; nếu cần backup thủ công, dùng `git add -f raw/<file>`.
-- Body text không bao giờ link inline `[[raw/inbox/...]]` — chỉ `sources:` field được phép (xem rule 4 dưới). `[[raw/...]]` (ngoài inbox) được phép vì user tự quản lý.
+- Sources with OR without a URL → all move from `raw/inbox/` to `raw/`. Provenance differs only in the `sources:` field (URL = strong, `[]` = weak).
+- `raw/inbox/` is staging only — files here are not yet ingested.
+- `raw/` (outside inbox) is local cache. Users may delete at will; to pin manually: `git add -f raw/<file>`.
+- Body text never links `[[raw/inbox/...]]` inline — only the `sources:` field may (see rule 4 below). `[[raw/...]]` (outside inbox) is allowed since the user manages it.
 
-## Domain (top-level folder dưới `wiki/`)
+## Domains (top-level folders under `wiki/`)
 
-**Domain = top-level folder ngay dưới `wiki/`** — số lượng **không cố định**. Tên folder do agent auto-detect từ nội dung raw + tiêu đề + URL.
+**Domain = the top-level folder directly under `wiki/`** — count is **unbounded**. Folder names are auto-detected by the agent from raw content + title + URL.
 
-**Naming rule cho domain mới** (agent dùng khi auto-create):
-- 1 framework/library rõ ràng → kebab-case tên (`expo-ecosystem`, `react-navigation`, `claude-code`).
-- 1 giáo trình / series → kebab-case tên series (`minna-no-nihongo`).
-- 1 dự án nội bộ → kebab-case tên project (`my-project`).
-- Lĩnh vực rộng chưa rõ project → tạo mới với tên mô tả (vd: `distributed-systems`).
+**Naming rule for new domains** (used by the agent when auto-creating):
+- One clear framework/library → its kebab-case name (`expo-ecosystem`, `react-navigation`, `claude-code`).
+- One course / series → the series kebab-case name (`minna-no-nihongo`).
+- One internal project → the project kebab-case name (`my-project`).
+- Broad area with no clear project → create with a descriptive name (e.g. `distributed-systems`).
 - Lowercase, kebab-case, ASCII-safe.
 
-## Cấu trúc bên trong mỗi domain
+## Structure inside each domain
 
-Mỗi domain folder có `index.md` riêng + page theo **kind** (semantic role):
-- `entity/` — thực thể (framework, người, tổ chức, library, tool).
-- `concept/` — khái niệm / pattern / lý thuyết.
-- `source/` — summary của raw source.
-- `task/` — chỉ domain có task tracking.
-- Sub-folder tuỳ ngữ cảnh: `vocab/` (languages), `analysis/`, `comparison/`...
+Each domain folder has its own `index.md` + pages by **kind** (semantic role):
+- `entity/` — entities (frameworks, people, orgs, libraries, tools).
+- `concept/` — concepts / patterns / theory.
+- `source/` — raw-source summaries.
+- `task/` — only in domains with task tracking.
+- Contextual subfolders: `vocab/` (languages), `analysis/`, `comparison/`...
 
-## Quy ước page
+## Page conventions
 
 Frontmatter YAML:
 ```yaml
 title: ...
-domain: <tên folder top-level>
+domain: <top-level folder name>
 kind: source|concept|entity|task|alert
 tags: [...]
-sources: ...                      # provenance — 2 dạng, xem rule dưới
+sources: ...                      # provenance — 2 forms, see rule below
 updated: YYYY-MM-DD
 status: draft|active|done|stale|planned|deprecated|superseded
 confidence: unverified|human-verified|machine-confirmed|superseded   # legacy
-# --- trust fields (optional, khuyến nghị cho page mới) ---
+# --- trust fields (optional, recommended for new pages) ---
 generated: {by: "<tool>/<model>", at: 2026-09-01T09:00:00+07:00}
-verified:  {by: "human:<id>",     at: 2026-09-01T10:00:00+07:00}  # vắng = unverified
-stale_after: 2027-01-01T00:00:00+07:00   # quá hạn → lint báo stale-after-passed
+verified:  {by: "human:<id>",     at: 2026-09-01T10:00:00+07:00}  # absent = unverified
+stale_after: 2027-01-01T00:00:00+07:00   # past due → lint reports stale-after-passed
 x_owner: "human:<id>"
-x_supersedes: wiki/<domain>/concept/<old>   # khi status: superseded
+x_supersedes: wiki/<domain>/concept/<old>   # when status: superseded
 ```
 
 **`sources:` field rule:**
 
-`sources:` chấp nhận **2 dạng** (dual-format — flat list vẫn valid cho page cũ):
+`sources:` accepts **2 forms** (dual-format — flat lists stay valid for old pages):
 
 - **Flat list (legacy)**: `sources: [<url>...] | [<wiki-xref>...] | []`
-- **List-of-dicts (khuyến nghị page mới)** — per-claim citation qua footnote:
+- **List-of-dicts (recommended for new pages)** — per-claim citation via footnote:
 ```yaml
 sources:
   - id: s1
-    resource: https://example.com/api/     # URL hoặc wiki-xref hoặc raw/ path
+    resource: https://example.com/api/     # URL, wiki-xref, or raw/ path
     title: "API docs"
 ```
-  Body cite từng claim: `Claim quan trọng.[^s1]` + footnote cuối file kèm trích verbatim:
+  Cite each claim in body: `Important claim.[^s1]` + closing footnote with verbatim quote:
   ```
   [^s1]: API docs
-      > [human:<id>] "prod phải là Postgres, SQLite chỉ để test local"
+      > [human:<id>] "prod must be Postgres, SQLite is for local testing only"
   ```
-  Lint check `footnote-sources-match`: mọi `[^id]` phải khớp `sources[].id` và ngược lại.
-  **Distill-verify**: khi merge/consolidate, citation set của page KHÔNG được co lại.
+  Lint check `footnote-sources-match`: every `[^id]` must match a `sources[].id` and vice versa.
+  **Distill-verify**: when merging/consolidating, the page's citation set must NOT shrink.
 
-Quy tắc chung (áp cả 2 dạng):
-1. **URL gốc** nếu raw file có `source: <url>` (docs/blog/GitHub) — provenance mạnh nhất. Nhiều URL OK.
-2. **Wiki cross-link** `[[wiki/<domain>/source/<other>]]` nếu claim dựa trên 1 source page khác trong wiki.
-3. **`sources: []`** khi page không có URL gốc (task intake, log nội bộ, bài viết cá nhân) HOẶC khi `raw/` file là intermediate (đã move ra khỏi `raw/inbox/`).
-4. **KHÔNG** ghi `raw/inbox/...` vào `sources:` — đó là staging, vi phạm copied-state rule (path local có thể rename/move trong khi wiki page vẫn trỏ tới path cũ). `raw/` (ngoài inbox) cho phép cite vì user tự quyết việc commit/backup.
-5. **KHÔNG** link tới `raw/inbox/` trong body text — chỉ trong `sources:` field. `[[raw/...]]` (ngoài inbox) cho phép — user tự quyết.
+General rules (both forms):
+1. **Original URL** when the raw file has `source: <url>` (docs/blog/GitHub) — strongest provenance. Multiple URLs OK.
+2. **Wiki cross-link** `[[wiki/<domain>/source/<other>]]` when the claim builds on another source page in the wiki.
+3. **`sources: []`** when the page has no original URL (task intake, internal logs, personal writing) OR when the `raw/` file is intermediate (already moved out of `raw/inbox/`).
+4. **NEVER** record `raw/inbox/...` in `sources:` — it's staging, violating the copied-state rule (local paths may rename/move while the wiki page still points at the old path). `raw/` (outside inbox) is citable since the user controls its commit/backup.
+5. **NEVER** link to `raw/inbox/` in body text — only in the `sources:` field. `[[raw/...]]` (outside inbox) allowed — the user's call.
 
-Ví dụ hợp lệ:
+Valid examples:
 ```yaml
 sources: [https://docs.example.com/api/]
 sources: [https://docs.example.com/api/, https://github.com/foo/bar]
@@ -91,117 +92,88 @@ sources: [https://docs.example.com/api/, wiki/<domain>/source/<other>.md]
 sources: []
 ```
 
-- Mọi claim quan trọng mang provenance: link `[[wiki page]]` trong body hoặc URL trong `sources:`.
-- Task page thêm: `status` (todo|doing|done|blocked), `priority`, `assignee`, `due`, `depends_on`.
-- Kanban = `wiki/projects/kanban.md`, 3 cột (Todo / Doing / Done), mỗi dòng link task page.
+- Every important claim carries provenance: a `[[wiki page]]` link in body or a URL in `sources:`.
+- Task pages add: `status` (todo|doing|done|blocked), `priority`, `assignee`, `due`, `depends_on`.
+- Kanban = `wiki/projects/kanban.md`, 3 columns (Todo / Doing / Done), one task-page link per line.
 
-**Backwards-compat:** page cũ chỉ có `category: <folder>` (không có `domain`/`kind`) → tự động infer từ path.
+**Backwards-compat:** old pages with only `category: <folder>` (no `domain`/`kind`) → inferred automatically from path.
 
-## Trust tier & verify (cả personal + project)
+## Wikilinks
 
-- **unverified** — không có `verified` (mặc định khi AI viết; `generated` ghi ai sinh, lúc nào).
-- **machine-confirmed** — `verified.by` là agent (check tất định qua máy).
-- **human-reviewed** — `verified.by` = `human:<id>`. Chỉ tier này mới là canonical cho JUDGMENT.
+- **Full path only**: `[[wiki/<domain>/<kind>/<slug>]]`.
+- **No markdown wrapping**: `[text]([[path]])` breaks Obsidian rendering.
+- Custom text → alias: `[[path|Custom Text]]`.
+- Never link `[[raw/inbox/...]]` in body (staging); `[[raw/...]]` outside inbox is allowed.
 
-**Duyệt artifact = set `verified`** qua lệnh (dùng chung cho cả personal + project wiki):
+## Trust tier & verify (personal + project)
+
+- **unverified** — no `verified` (default for AI-written; `generated` records who/when).
+- **machine-confirmed** — `verified.by` is an agent (deterministic machine check).
+- **human-reviewed** — `verified.by` = `human:<id>`. Only this tier is canonical for JUDGMENT.
+
+**Reviewing an artifact = setting `verified`** (shared by personal + project wikis):
 
 ```bash
 llm-wiki verify wiki/<domain>/concept/<slug>.md --by <human-id>   # set verified → human-reviewed
-llm-wiki verify <path> --unverify                                 # xoá verified (hạ về unverified)
+llm-wiki verify <path> --unverify                                 # drop verified (back to unverified)
 ```
 
-AI KHÔNG tự set `verified`. Consolidate/review đổi nội dung judgment → `--unverify` phần đó, chờ human duyệt lại.
+AI NEVER sets `verified` itself. Consolidate/review touching judgment content → `--unverify` that part, await human re-review.
 
-## Chống fork — status: planned
+## Anti-fork — status: planned
 
-Trước khi tạo page mới, tra DB page `status: planned` cùng slug: có → **update**, không create.
-Reserve = tạo placeholder `status: planned` trước khi sinh nội dung; ingest sau thấy planned → điền nội dung + `status: active`. Không cần file registry riêng.
+Before creating a page, look up a `status: planned` page with the same slug in the DB: found → **update**, don't create.
+Reserve = create a `status: planned` placeholder before generating content; later ingest sees planned → fills in + `status: active`. No separate registry file needed.
 
-## Pins — wiki/pins.yml (sửa tay của human, sống sót qua regenerate)
+## Pins — wiki/pins.yml (human hand-edits, survive regeneration)
 
 ```yaml
 - concept: wiki/<domain>/concept/<slug>
   kind: correction            # correction | addition | deletion
-  claim: "Nội dung human muốn giữ"
-  anchor: "## <heading>"      # section mà pin bám vào
+  claim: "Content the human wants to keep"
+  anchor: "## <heading>"      # section the pin anchors to
   provenance: "human:<id>"
   status: active
 ```
 
-- Ingest/consolidate KHÔNG ghi đè section mà pin `active` bám vào.
-- Nguồn mới mâu thuẫn pin → đẩy vào `wiki/alerts/`, KHÔNG revert âm thầm.
-- Lint check `pin-orphan`: anchor heading mất / concept không tồn tại → report human (không tự xoá pin).
+- Ingest/consolidate do NOT overwrite sections an `active` pin anchors to.
+- New sources contradicting a pin → push to `wiki/alerts/`, NEVER revert silently.
+- Lint check `pin-orphan`: anchor heading gone / concept missing → report to human (never delete pins).
 
-## Alerts — wiki/alerts/ (hàng đợi gap)
+## Alerts — wiki/alerts/ (gap queue)
 
-- Gap từ review skill (mâu thuẫn, stale, trust gap, pin conflict) ghi thành page:
+- Review-skill gaps (contradiction, stale, trust gap, pin conflict) become pages with
   frontmatter `domain: alerts, kind: alert, status: open, last_seen: <date>`.
-- Gap không bị nêu lại 2 lần chạy review liên tiếp → `status: closed` (tự đóng).
-- Là pseudo-domain: vẫn có `wiki/alerts/index.md`, vẫn vào DB/search.
-
-## Operations
-
-### Ingest
-1. Con người thả source vào `raw/inbox/` (hoặc AI khác qua MCP `wiki_submit`).
-2. LLM đọc, **auto-detect domain**, thảo luận takeaway.
-3. Viết summary → `wiki/<domain>/source/<slug>.md` với frontmatter `domain: <domain>`, `kind: source`.
-4. Update entity/concept pages liên quan trong cùng domain.
-5. Update `wiki/<domain>/index.md`. Nếu domain mới → tạo file mới + insert row vào `wiki/index.md`.
-6. Insert vào `wiki/log.md` (reverse-chronological, mới nhất trên).
-7. Index vào search DB (`tools/ingest.py`).
-8. Move source: cả URL + no-URL đều → `raw/` (local cache). Phân biệt provenance chỉ trong `sources:` frontmatter.
-
-### Query
-- Hỏi → định tuyến `index.md` → `wiki_search` (union + RRF) → **rerank bằng LLM** (skill) → đọc `top_n_final` page → tổng hợp + cite.
-- Câu trả lời hay → file ngược thành page mới (compounding).
-
-### Eval (khi cần bằng chứng, không định kỳ)
-- `llm-wiki eval --compare` — đo retrieval trên bộ query vàng: P@k / R@k / MRR.
-- Query vàng ở `eval/golden.toml` (COMMIT — đây là dữ liệu, không phải config).
-- Kết quả đo ở `eval/results.json` (gitignored) kèm fingerprint config.
-- Eval **read-only**: không sửa markdown, không ghi `wiki/log.md`.
-
-### MCP bridge (cho AI khác)
-- MCP = cầu nối: **chỉ đọc/tìm kiếm wiki** + **nạp context vào `raw/inbox/`** (`wiki_submit`).
-- **KHÔNG** được viết thẳng vào `wiki/`. Edit wiki / ingest là việc maintainer.
-- Đề xuất sửa → `wiki_propose_edit` (staging `wiki/.proposals/`), chờ người sign-off.
-
-### Lint (định kỳ)
-Tìm: contradiction (report người), stale claim, orphan page, missing xref, broken link, thiếu index entry, **frontmatter thiếu `domain`/`kind`**, **domain mới chưa có `index.md`**, **sources: chứa `raw/inbox/...` local path**, **body inline `[[raw/inbox/...]]`**.
+- A gap not re-raised across two consecutive review runs → `status: closed` (auto-close).
+- Pseudo-domain: still has `wiki/alerts/index.md`, still indexed/searched.
 
 ## Search
 
-Markdown là nguồn sự thật; mọi chỉ mục (DB FTS, `rag/.rag_index/`) là **derived**,
-vứt đi rebuild được — KHÔNG commit.
+Markdown is the source of truth; all indexes (DB FTS, `rag/.rag_index/`) are **derived**,
+throwable, rebuildable — NEVER commit.
 
-- Scale nhỏ: `index.md` đủ.
-- **Union retrieval** (MCP `wiki_search` / `tools/search.py:hybrid_search`) — 3 kênh
-  xếp hạng độc lập rồi gộp bằng **RRF trên hạng** (không cộng thẳng score, vì bm25()
-  và cosine khác thang):
-  | kênh | hạ tầng | tắt khi |
+- Small scale: `index.md` suffices.
+- **Union retrieval** (MCP `wiki_search` / `tools/search.py:hybrid_search`) — 3 independently
+  ranked channels fused by **RRF over rank** (never summed scores: `bm25()` and cosine
+  live on different scales):
+  | channel | infra | off when |
   |---|---|---|
-  | `bm25_page` | FTS5 `pages_fts` (wiki + raw) | FTS5 không có |
-  | `bm25_chunk` | FTS5 `chunks_fts` trong `.wiki.db` | `chunk_bm25=false` hoặc chưa `reindex --full` |
-  | `vector_chunk` | `rag/.rag_index/{chunks.json,vectors.npy}` | `vector=false`, chưa build, thiếu model |
-- Kết quả có `matched_by` (kênh nào tìm ra page) + `rank` + `snippet` (có thể là
-  **text của một chunk**) → đủ để CHỌN page, không đủ để trả lời.
-- **Chunk chỉ để tìm concept.** Câu trả lời trích từ concept đã biên dịch, cite
-  Concept path + `sources[].id` — giữ nguyên trust tier, không trích chunk thô.
-- Chunk = semantic section (theo heading, giữ heading làm ngữ cảnh), loại
-  frontmatter + footnote verbatim khỏi index. `index.md`/`log.md` (reserved) và
-  bản dịch `*.lang.md` **không** được chunk.
-- **Fallback tất định**: thiếu model/embeddings/chunk → chạy structural + BM25.
-  "Không model" ≠ "hỏng". Eval sẽ in `[ERROR] kênh bị tắt vì lỗi` nếu kênh chết
-  vì lỗi thật (khác "tắt vì cấu hình").
-- Ngưỡng: dưới ~100k token, BM25 đủ. Bật `vector = true` **chỉ khi**
-  `llm-wiki eval --compare` cho thấy recall/MRR cải thiện.
-- Config: `[retrieval]` trong `.llm-wiki.toml` (`mode`, `fusion`, `rrf_k`,
+  | `bm25_page` | FTS5 `pages_fts` (wiki + raw) | FTS5 missing |
+  | `bm25_chunk` | FTS5 `chunks_fts` in `.wiki.db` | `chunk_bm25=false` or no `reindex --full` yet |
+  | `vector_chunk` | `rag/.rag_index/{chunks.json,vectors.npy}` | `vector=false`, not built, model missing |
+- Results carry `matched_by` (which channels hit) + `rank` + `snippet` (possibly
+  **one chunk's text**) → enough to PICK a page, not to answer.
+- **Chunks only find concepts.** Answers quote compiled concepts, citing the
+  Concept path + `sources[].id` — trust tier preserved, never quote raw chunks.
+- Chunk = semantic section (by heading, heading kept as context), excluding
+  frontmatter + verbatim footnotes. Reserved `index.md`/`log.md` and
+  `*.lang.md` translations are **never** chunked.
+- **Deterministic fallback**: missing model/embeddings/chunks → structural + BM25.
+  "No model" ≠ "broken". Eval prints `[ERROR] channel disabled by error` when a channel
+  dies of a real error (vs "disabled by config").
+- Threshold: below ~100k tokens BM25 suffices. `vector = true` **only when**
+  `llm-wiki eval --compare` shows recall/MRR gains.
+- Config: `[retrieval]` in `.llm-wiki.toml` (`mode`, `fusion`, `rrf_k`,
   `chunk_bm25`, `vector`, `chunk_tokens`, `top_k_bm25`, `top_k_vector`,
-  `top_n_final`, `relax_recall`, `[retrieval.weights]`). `rerank` là hợp đồng của
-  **skill layer** (Python không đọc).
-
-## Nguyên tắc an toàn
-- **AI proposes, human decides.** Re-derivable writes (index, log) tự làm. Asserting/irreversible → `wiki_propose_edit` staging, chờ sign-off.
-- Contradiction là report cho người, không materialize thành edge trên lời model.
-- Provenance bắt buộc. Không claim không dẫn nguồn.
-- **Copied state drift:** wiki page KHÔNG chứa value move-able (SHA, line count, mtime, count tuyệt đối). Values nằm trong frontmatter (mtime) hoặc đọc live từ tooling.
+  `top_n_final`, `relax_recall`, `[retrieval.weights]`). `rerank` is a **skill-layer**
+  contract (Python never reads it).

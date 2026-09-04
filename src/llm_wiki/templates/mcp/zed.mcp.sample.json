@@ -1,14 +1,8 @@
 {
   "context_servers": {
     "llm-wiki-base-mcp": {
-      "command": "python3",
-      "args": ["tools/mcp_base_server.py"],
-      "env": {
-        "LLM_WIKI_BASE_DIR": "/Users/<you>/.llm-wiki-base",
-        "WIKI_EMBED_MODEL": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-        "WIKI_BM25_WEIGHT": "0.5",
-        "WIKI_VEC_WEIGHT": "0.5"
-      }
+      "command": "llm-wiki",
+      "args": ["serve", "--mcp"]
     }
   }
 }

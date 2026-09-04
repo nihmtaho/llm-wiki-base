@@ -27,4 +27,4 @@ Mỗi domain có cấu trúc: `index.md` + `entity/` + `concept/` + `source/` (+
 
 ---
 
-Log: [log.md](log.md) · Schema: [AGENTS.md](../AGENTS.md) · Runbook: [CLAUDE.md](../CLAUDE.md)
+Log: [log.md](log.md) · Schema: [AGENTS.md](../AGENTS.md) · Runbook: [CLAUDE.md](../.claude/CLAUDE.md)

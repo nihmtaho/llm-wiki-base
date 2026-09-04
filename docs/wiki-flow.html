@@ -333,7 +333,7 @@ const NODES = [
   { id: "submit",  label: "wiki_submit (MCP)",      sub: "AI khác nạp, bắt buộc wiki=", role: ROLE.engine, skill: false, wide: [0,2], slot: 2, modes: "*" },
   { id: "inbox",   label: "raw/inbox/",             sub: "staging, chờ ingest",    role: ROLE.data,   skill: false, wide: [1,1], slot: 3, modes: "*" },
   { id: "ingest",  label: "skill llm-wiki-ingest",  sub: "đọc · tóm tắt · domain", role: ROLE.data, skill: true, wide: [2,1], slot: 4, modes: "*" },
-  { id: "verifycode", label: "verify code path",    sub: "grep/codegraph confirm", role: ROLE.human, skill: true, wide: [2,2], slot: 5, modes: "project" },
+  { id: "verifycode", label: "verify code path",    sub: "grep confirm", role: ROLE.human, skill: true, wide: [2,2], slot: 5, modes: "project" },
   { id: "pages",   label: "wiki/<domain>/*.md",     sub: "source · entity · concept", role: ROLE.data, skill: false, wide: [3,1], slot: 6, modes: "*" },
   { id: "catalog", label: "index.md + log.md",      sub: "re-derivable → tự ghi",  role: ROLE.data,   skill: false, wide: [3,2], slot: 7, modes: "*" },
   { id: "reindex", label: "llm-wiki reindex",       sub: "content-hash, tăng dần", role: ROLE.engine, skill: false, wide: [4,1], slot: 8, modes: "*" },
@@ -384,7 +384,7 @@ const STEPS = [
     body: "Đọc trọn nguồn, tóm tắt 3–5 takeaway, <strong>bàn với người trước khi ghi</strong>, auto-detect domain, rồi viết source/entity/concept page kèm provenance. <code>verified</code> để trống — chờ người.",
     byMode: {
       personal: { extra: "Personal: 1 source thường chạm 10–15 page; từ vựng/ngữ pháp phải vào wiki chứ không nằm chết trong source page." },
-      project:  { extra: "Codebase: 5–10 page, domain nghiêng về tech-stack/architecture/conventions, và MỌI code path phải được grep/codegraph confirm trước khi ghi — wiki stale về đường dẫn file là lỗi nghiêm trọng nhất." } } },
+      project:  { extra: "Codebase: 5–10 page, domain nghiêng về tech-stack/architecture/conventions, và MỌI code path phải được grep confirm trước khi ghi (khuyến nghị plugin codegraph ở root repo) — wiki stale về đường dẫn file là lỗi nghiêm trọng nhất." } } },
   { key: "write", title: "3 · Markdown là nguồn sự thật", nodes: ["pages","catalog"],
     actor: "Skill ghi; người đọc", place: "wiki/<domain>/{source,entity,concept}/", cmd: "vim wiki/expo-router/concept/router.md",
     body: "Page mới + cross-link <code>[[wiki/…]]</code> + cập nhật <code>index.md</code>/<code>log.md</code>. Hai file catalog đó <em>re-derivable</em> nên agent tự ghi; mọi assertion khác thì không.",
@@ -398,7 +398,7 @@ const STEPS = [
     body: "Một server duy nhất cho cả máy, đọc <code>registry.toml</code> để biết có wiki nào (<code>name</code> + <code>id</code>). <code>wiki=\"\"</code> = search mọi wiki. Xin pool <strong>rộng hơn</strong> số cần đọc vì bước cắt cần ngữ nghĩa, không cần thống kê.",
     byMode: {
       personal: { extra: "Wiki cá nhân: query thường ở trong một wiki → skill llm-wiki-query." },
-      project:  { extra: "Repo code: chưa biết câu trả lời nằm ở wiki nào → llm-wiki-research ở root repo, đối chiếu project wiki ↔ personal wiki, rồi mới fallback sang codegraph/grep." } } },
+      project:  { extra: "Repo code: chưa biết câu trả lời nằm ở wiki nào → llm-wiki-research ở root repo, đối chiếu project wiki ↔ personal wiki, rồi mới fallback sang grep." } } },
   { key: "fuse", title: "6 · ba kênh → RRF", nodes: ["rrf","pfts","cfts","vectors"],
     actor: "CLI/Python tất định", place: "tools/search.py", cmd: "# .llm-wiki.toml\n[retrieval]\nfusion = \"rrf\"\n[retrieval.weights]\nbm25_page = 1.0\nbm25_chunk = 1.0\nvector = 1.0",
     body: "Không cộng thẳng score: <code>bm25()</code> và cosine khác thang hoàn toàn, nên RRF gộp bằng <strong>hạng</strong>. Mỗi kết quả mang <code>matched_by</code> + <code>rank</code> + <code>snippet</code>. Thiếu model / chưa build chunk → kênh đó tự tắt và <em>được báo</em>, không im lặng trả số liệu giả.",

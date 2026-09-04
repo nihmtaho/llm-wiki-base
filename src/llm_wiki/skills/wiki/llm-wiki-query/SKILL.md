@@ -1,85 +1,85 @@
 ---
 name: llm-wiki-query
 description: >
-  Trả lời câu hỏi từ MỘT wiki cụ thể (wiki bạn đang đứng) — union retrieval (BM25 page ∪
-  BM25 chunk ∪ vector chunk, RRF) rồi rerank bằng LLM, đọc tập page nhỏ nhất, tổng hợp
-  trả lời có cite, và file ngược synthesis thành page mới. Cần tìm qua NHIỀU wiki thì
-  dùng skill `llm-wiki-research`.
+  Answer questions from ONE specific wiki (the one you stand in) — union retrieval (BM25 page ∪
+  BM25 chunk ∪ vector chunk, RRF), LLM rerank, read the smallest sufficient page set, synthesize
+  a cited answer, and file synthesis back as new pages. For searching ACROSS wikis, use
+  `llm-wiki-research`.
 ---
 
 # LLM Wiki — Query
 
-Schema: `_schema.md`. Runbook: `CLAUDE.md`. Liên quan: `llm-wiki-reindex` (index lệch), `llm-wiki-lint` (cấu trúc), `llm-wiki-research` (cross-wiki).
+Schema: `_schema.md`. Runbook: `AGENTS.md`. Related: `llm-wiki-reindex` (skewed index), `llm-wiki-lint` (structure), `llm-wiki-research` (cross-wiki).
 
-## Ranh giới với `research`
+## Boundary with `research`
 
-| | `llm-wiki-query` (skill này) | `llm-wiki-research` |
+| | `llm-wiki-query` (this skill) | `llm-wiki-research` |
 |---|---|---|
-| phạm vi | **một** wiki, bạn đã biết wiki nào | nhiều wiki được chỉ định / cross-wiki |
-| `wiki=` | tên wiki hiện tại (bỏ trống nếu 1 wiki duy nhất) | `""` hoặc list wiki |
-| kết luận | trả lời + có thể **ghi** synthesis vào wiki | so sánh/đối chiếu giữa các nguồn wiki |
+| scope | **one** wiki, already known | many designated wikis / cross-wiki |
+| `wiki=` | current wiki name (blank if it's the only one) | `""` or wiki list |
+| outcome | answer + may **write** synthesis into the wiki | compare/contrast across wiki sources |
 
-## Khi nào
+## When
 
-Human đặt câu hỏi về nội dung đã có trong wiki.
+The human asks about content already in the wiki.
 
-## Quy trình
+## Process
 
-1. **Định tuyến structural**: đọc `wiki/index.md` → domain index (`wiki/<domain>/index.md`). Route tốt nhất khi đã biết domain; bỏ qua nếu không rõ.
-   - **[codebase]** Nếu đang ở root của repo có project wiki, đọc `<wiki_root>/wiki/index.md` để biết domain (tech-stack, architecture, conventions, …).
-2. **Lấy pool ứng viên RỘNG hơn số cần đọc**:
-   - `wiki_search(query, top_k = 2 × [retrieval].top_n_final, wiki=<tên wiki>)` — union retrieval: BM25 page ∪ BM25 chunk ∪ vector chunk, gộp bằng **RRF trên hạng**. Đọc `[retrieval]` trong `.llm-wiki.toml`.
-   - Query tiếng Việt / ký tự đặc biệt: tool tự nới (giữ nguyên → AND sanitize → OR) khi `relax_recall = true`.
-   - `semantic_search(query, top_k, wiki)` khi cần xem riêng kênh vector chunk (chỉ có khi `vector = true`).
+1. **Structural routing**: read `wiki/index.md` → domain index (`wiki/<domain>/index.md`). Best route when the domain is known; skip if unclear.
+   - **[codebase]** At a repo root with a project wiki, read `<wiki_root>/wiki/index.md` for domains (tech-stack, architecture, conventions, …).
+2. **Pull a WIDER candidate pool than you'll read**:
+   - `wiki_search(query, top_k = 2 × [retrieval].top_n_final, wiki=<wiki name>)` — union retrieval: BM25 page ∪ BM25 chunk ∪ vector chunk, fused by **RRF over rank**. Read `[retrieval]` in `.llm-wiki.toml`.
+   - Vietnamese queries / special characters: the tool auto-relaxes (verbatim → AND sanitize → OR) when `relax_recall = true`.
+   - `semantic_search(query, top_k, wiki)` to inspect the vector-chunk channel alone (exists only when `vector = true`).
    - Filter: `wiki_list(domain="…", kind="concept", wiki=…)`.
-3. **RERANK ở bước này (skill làm, không phải tool)** — khi `[retrieval].rerank = "llm"`:
-   - Chỉ dùng `title` + `snippet` + `matched_by` của mỗi ứng viên; **KHÔNG mở file** lúc chấm.
-   - Tiêu chí, theo thứ tự ưu tiên:
-     a. **Đúng chủ đề**, không chỉ trùng từ khoá (snippet lệch nghĩa → loại).
-     b. `matched_by` càng nhiều kênh càng đáng tin (`bm25_page` + `bm25_chunk` + `vector_chunk` > 1 kênh).
-     c. Trust tier: ưu tiên `verified.by: human:*` > machine-confirmed > unverified.
-     d. Trùng chủ đề giữa nhiều page → giữ page canonical (`concept`, không phải `source`/`index`).
-   - Chọn **đúng `[retrieval].top_n_final`** page (mặc định 8) để mở. `rerank = "off"` → giữ nguyên thứ tự RRF.
-   - Vì sao pool rộng rồi mới cắt: tool xếp hạng bằng tín hiệu thống kê, còn "page này có thật sự trả lời không" cần ngữ nghĩa — phần đó LLM làm tốt hơn, miễn là đừng tốn token đọc nhầm file.
-4. **Đọc các page đã chọn** (`wiki_read`) để lấy chi tiết + provenance. Đi theo wikilink khi cần mở rộng. **Chunk/snippet chỉ để *tìm* concept — không phải nội dung trả lời**; câu trả lời lấy từ page đã biên dịch (giữ trust tier).
-5. **Tổng hợp câu trả lời, có cite**: `[[wiki/<domain>/source/...]]` hoặc URL trong `sources:`; cite Concept path + footnote `[^id]` khi page dùng per-claim citation.
-   - **[codebase]** Phân biệt intent (`requirements`/quyết định) vs observation (hành vi đọc từ code) — đừng trả observation như thể đó là yêu cầu.
-6. **Trust tier check** (cả 2 profile): `status: draft` hoặc không có `verified` → gắn cảnh báo "unverified" vào câu trả lời; `stale_after` quá hạn (lint báo `stale-after-passed`) → cảnh báo stale; ưu tiên human-reviewed.
-   - **[codebase]** Wiki **có thể stale với code**: critical claim phải cross-check bằng `grep`/codegraph trước khi kết luận. Thứ tự ưu tiên nguồn: wiki → codegraph → grep/find. **Không nhảy thẳng vào grep khi wiki chưa được check** — wiki mất công maintain, dùng nó.
-   - Contradiction giữa pages (hoặc giữa wiki và code) → **báo human**, không tự resolve, không ghi edge.
-7. Nếu câu hỏi cần synthesis mới (so sánh, connection): **file ngược thành page mới** trong domain phù hợp (`wiki/<domain>/concept/...`) + cập nhật index → wiki compounding. Page mới KHÔNG set `verified` — chờ `llm-wiki verify`.
-   - **[codebase]** Nếu chỉ được phép đề xuất (không phải maintainer): dùng `wiki_propose_edit` → staging `.proposals/`, chờ `llm-wiki proposals apply`.
-8. Không tìm thấy → nói rõ, đề xuất ingest (`wiki_submit` vào `raw/inbox/`) hoặc tìm web. **Không bịa.**
+3. **RERANK HERE (the skill does it, not the tool)** — when `[retrieval].rerank = "llm"`:
+   - Use only each candidate's `title` + `snippet` + `matched_by`; **do NOT open files** while scoring.
+   - Criteria, in priority order:
+     a. **Topical fit**, not just keyword overlap (off-meaning snippet → drop).
+     b. More `matched_by` channels = more trustworthy (`bm25_page` + `bm25_chunk` + `vector_chunk` beats one channel).
+     c. Trust tier: prefer `verified.by: human:*` > machine-confirmed > unverified.
+     d. Same topic across pages → keep the canonical page (`concept`, not `source`/`index`).
+   - Open exactly `[retrieval].top_n_final` pages (default 8). `rerank = "off"` → keep raw RRF order.
+   - Why pool wide then cut: the tool ranks on statistical signals, but "does this page actually answer?" needs semantics — the LLM does that part better, as long as it doesn't burn tokens opening the wrong files.
+4. **Read the selected pages** (`wiki_read`) for detail + provenance. Follow wikilinks to expand. **Chunks/snippets only *find* concepts — they are not answer content**; answers come from compiled pages (trust tier preserved).
+5. **Synthesize a cited answer**: `[[wiki/<domain>/source/...]]` or URLs from `sources:`; cite Concept path + `[^id]` footnote when the page uses per-claim citation.
+   - **[codebase]** Separate intent (`requirements`/decisions) from observation (behavior read from code) — never present an observation as a requirement.
+6. **Trust-tier check** (both profiles): `status: draft` or no `verified` → flag "unverified" in the answer; past-`stale_after` (lint reports `stale-after-passed`) → flag stale; prefer human-reviewed.
+   - **[codebase]** The wiki **can go stale against code**: cross-check critical claims with `grep` before concluding (codegraph plugin at the repo root first, if installed). Source priority: wiki → grep/find. **Don't jump straight to grep before checking the wiki** — the wiki was expensive to maintain, use it.
+   - Contradiction between pages (or wiki vs code) → **report to the human**, never resolve or record an edge yourself.
+7. Synthesis-worthy questions (comparisons, connections): **file back as a new page** in the fitting domain (`wiki/<domain>/concept/...`) + update the index → wiki compounding. New pages do NOT get `verified` — they await `llm-wiki verify`.
+   - **[codebase]** Propose-only mode (not the maintainer): use `wiki_propose_edit` → `.proposals/` staging, awaiting `llm-wiki proposals apply`.
+8. Not found → say so, propose ingest (`wiki_submit` into `raw/inbox/`) or web search. **Never fabricate.**
 
-## Task lớn: research rồi mới plan
+## Big tasks: research, then plan
 
-Trước khi refactor / feature mới / multi-file change: chạy quy trình trên để lấy context, **rồi** vào plan mode (Shift+Tab), cite wiki pages trong plan, chỉ ra gaps, và liệt kê page cần update sau khi implement. Mỗi claim quan trọng trong plan phải có wiki path hoặc URL; verification phải reproducible (MCP tool hoặc shell command, không "test thử"). Nếu plan mâu thuẫn wiki → ưu tiên wiki (đã có provenance), flag conflict cho human. Breaking change → section "Breaking:" riêng.
+Before a refactor / feature / multi-file change: run the process above for context, **then** enter plan mode (Shift+Tab), cite wiki pages in the plan, name gaps, and list pages to update after implementing. Every material claim in the plan needs a wiki path or URL; verification must be reproducible (MCP tool or shell command, not "try testing"). Plan contradicting the wiki → the wiki wins (it has provenance), flag the conflict to the human. Breaking changes → their own "Breaking:" section.
 
-## Đo chất lượng retrieval
+## Measuring retrieval quality
 
-Chạy `llm-wiki eval` khi: bật/tắt `vector`, đổi `chunk_tokens`/`fusion`, hoặc wiki lớn lên rõ rệt.
+Run `llm-wiki eval` when: toggling `vector`, changing `chunk_tokens`/`fusion`, or the wiki clearly grows.
 
 ```bash
-llm-wiki eval            # P@k / R@k / MRR theo config hiện tại
-llm-wiki eval --compare  # so tier1-weighted / rrf-text / rrf+vector + verdict
-llm-wiki eval --init     # tạo eval/golden.toml từ template
+llm-wiki eval            # P@k / R@k / MRR under current config
+llm-wiki eval --compare  # tier1-weighted / rrf-text / rrf+vector + verdict
+llm-wiki eval --init     # create eval/golden.toml from template
 ```
 
-- `--compare` là **bằng chứng** để bật `vector = true`, không phải cảm giác.
-- Query vàng ở `eval/golden.toml` (commit). Lấy từ: câu hỏi thật của human trong các phiên, và câu mà wiki trả lời sai (giữ làm regression). **Đừng để AI tự soạn query hộ** — số liệu khi đó đo cái wiki trùng ý AI, không đo usage thật.
-- Kết quả append `eval/results.json` (gitignored) kèm fingerprint config → so được theo thời gian.
-- `zero_recall_queries` = **wiki thiếu kiến thức**, không phải retriever dở → việc của `llm-wiki-ingest`.
-- Thấy kênh biến mất trong `matched_by` → check `chunks_fts` rỗng (`llm-wiki reindex --full`) hoặc lỗi kênh (eval in `[ERROR] kênh bị tắt vì lỗi`).
+- `--compare` is the **evidence** for `vector = true`, not a feeling.
+- Goldens live in `eval/golden.toml` (commit). Source them from: real human questions across sessions, and questions the wiki got wrong (keep as regressions). **Don't let AI author queries for you** — then the numbers measure wiki↔AI overlap, not real usage.
+- Results append to `eval/results.json` (gitignored) with a config fingerprint → comparable over time.
+- `zero_recall_queries` = **wiki missing knowledge**, not a bad retriever → `llm-wiki-ingest`'s job.
+- A channel vanishing from `matched_by` → check empty `chunks_fts` (`llm-wiki reindex --full`) or channel errors (eval prints `[ERROR] channel disabled by error`).
 
 ## MCP tools
 
-Centralized server `llm-wiki-base-mcp` — mỗi tool có param `wiki=`:
+Centralized server `llm-wiki-base-mcp` — each tool takes `wiki=`:
 `wiki_search(query, top_k, wiki)` · `semantic_search(query, top_k, wiki)` · `wiki_read(path, wiki)` · `wiki_list(domain, kind, wiki)` · `wiki_lint(wiki)`.
-Kết quả search/read luôn mang field `wiki` để biết nguồn gốc.
+Search/read results always carry a `wiki` field identifying their origin.
 
-## An toàn
+## Safety
 
-- Không bịa claim không có trong wiki/raw; không suy diễn ngoài wiki mà không đánh dấu.
-- Không trích value hay đổi làm sự thật hiện tại (SHA, mtime, count) — trỏ về nguồn live.
-- Cross-domain synthesis: page trải nhiều domain → đặt vào domain user quan tâm nhất, hoặc tạo domain mới.
-- `wiki_submit` là cổng nạp của **AI khác**, không phải của bạn khi đang maintain.
+- Never fabricate claims absent from wiki/raw; never infer beyond the wiki without marking it.
+- Never cite volatile values as current truth (SHA, mtime, counts) — point at the live source.
+- Cross-domain synthesis: a page spanning domains → goes to the domain the user cares about most, or a new domain.
+- `wiki_submit` is the intake for **other AIs**, not for you while maintaining.

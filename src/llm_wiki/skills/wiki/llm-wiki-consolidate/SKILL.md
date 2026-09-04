@@ -1,38 +1,38 @@
 ---
 name: llm-wiki-consolidate
 description: >
-  Gộp log-layer và các mẩu rải rác thành concept canonical — merge tại chỗ, additive,
-  tái grounding từ raw, distill-verify (citation không được co lại). Kích hoạt định kỳ
-  hoặc khi human nói "consolidate", "gộp topic".
+  Merge the log layer and scattered fragments into canonical concepts — in-place merge, additive,
+  re-grounded from raw, distill-verified (citations must not shrink). Runs periodically or when
+  the human says "consolidate", "merge topics".
 ---
 
 # LLM Wiki — Consolidate
 
-Biến entry theo thời gian (`log.md`, source pages trùng lặp) thành tri thức canonical theo khái niệm, mà không mất bằng chứng và không tự bồi hallucination.
+Turn time-ordered entries (`log.md`, duplicate source pages) into canonical per-concept knowledge, without losing evidence and without self-serving hallucination.
 
-## Nguyên tắc bất di
+## Immutable principles
 
-- **Chỉ raw → concept.** Không tái sinh concept từ concept khác. Mọi claim gộp vào phải trace về nguồn (`sources[]` trỏ URL / `raw/` / source page).
-- **Additive merge.** Nội dung đang có là bất biến; merge chỉ *thêm*. Không viết lại/xoá nội dung cũ trừ khi deprecate có chủ đích.
-- **Single source per fact.** Hai concept giữ cùng một sự thật → chọn bản canonical, bản kia `status: superseded` + `x_supersedes: <canonical-path>`, để lại con trỏ (**không xoá file**).
-- **Pins** (`wiki/pins.yml`): pin `active` bám section nào → section đó bất biến. Section mất / pin bị nguồn mới phủ định → đẩy vào `wiki/alerts/`, **không revert âm thầm**.
+- **Raw → concept only.** Never regenerate a concept from another concept. Every merged claim must trace to a source (`sources[]` pointing at a URL / `raw/` / source page).
+- **Additive merge.** Existing content is immutable; merging only *adds*. Never rewrite/delete old content except deliberate deprecation.
+- **Single source per fact.** Two concepts holding the same fact → pick the canonical one, mark the other `status: superseded` + `x_supersedes: <canonical-path>`, leave a pointer (**never delete the file**).
+- **Pins** (`wiki/pins.yml`): whatever section an `active` pin anchors → that section is immutable. Missing section / pin contradicted by a newer source → push to `wiki/alerts/`, **never revert silently**.
 
-## Quy trình
+## Process
 
-1. Đọc watermark `wiki/.consolidate_state.json` (`last_entry` — mốc log lần trước, tránh xử lý lại).
-2. **Chọn ứng viên**: entry mới trong `wiki/log.md` kể từ watermark + topic có thông tin rải rác across pages (human chỉ định topic → ưu tiên topic đó).
-   - **[codebase]** Ưu tiên topic mà nhiều `entity`/`source` page cùng nhắc một pattern — đó là dấu hiệu concept canonical thiếu.
-3. Với mỗi topic → xác định **concept canonical đích** (`wiki/<domain>/concept/<slug>.md`). Chưa có → tạo mới theo schema; tôn trọng `status: planned` chống fork (xem `_schema.md`).
-4. **Tái grounding**: thu thập material từ source/raw (**không từ concept khác**); mỗi claim gộp vào phải có citation `[^id]` khớp `sources[].id`.
-5. **Merge tại chỗ (additive)** vào concept đích — giữ body có cấu trúc, wikilink theo path.
-6. **Re-check pins** sau merge: còn đúng → giữ; bị phủ định → `wiki/alerts/`; section mất → orphan (báo human).
-7. **Distill-verify**: tập citation `[^id]` của concept sau merge **không được co lại** so với trước — đếm trước/sau, in ra báo cáo. Mỗi claim mới phải dẫn nguồn.
-8. **Trust**: phần nội dung đổi mang tính judgment → `llm-wiki verify <path> --unverify` để hạ `verified` (chờ human duyệt lại). **Không tự set `verified`.**
-9. **Cập nhật**: frontmatter `generated: {by, at}` mới; `wiki/<domain>/index.md` mô tả lại nếu cần; deprecate bản trùng (`x_supersedes`); append `wiki/log.md` (`## [<ISO8601>] consolidate | <topic>` — chèn theo thứ tự reverse-chronological, dùng Edit với anchor, không rewrite cả file); đẩy watermark; chạy `llm-wiki reindex` (tăng dần).
-10. **Báo cáo**: concept nào được gộp, bản nào deprecate, citation trước/sau, phần nào cần human duyệt.
+1. Read the watermark `wiki/.consolidate_state.json` (`last_entry` — the previous log mark, avoids reprocessing).
+2. **Pick candidates**: new `wiki/log.md` entries since the watermark + topics with information scattered across pages (human-named topic wins on priority).
+   - **[codebase]** Prefer topics where many `entity`/`source` pages mention the same pattern — that's a missing-canonical-concept signal.
+3. Per topic → determine the **target canonical concept** (`wiki/<domain>/concept/<slug>.md`). None exists → create per schema; honor `status: planned` anti-fork (see `_schema.md`).
+4. **Re-ground**: gather material from source/raw (**never from another concept**); every merged claim needs a `[^id]` citation matching `sources[].id`.
+5. **Merge in place (additive)** into the target concept — keep the body structured, path-style wikilinks.
+6. **Re-check pins** after merging: still holding → keep; contradicted → `wiki/alerts/`; section gone → orphan (report to the human).
+7. **Distill-verify**: the concept's `[^id]` citation set after merging must **not shrink** vs before — count before/after, print in the report. Every new claim needs a source.
+8. **Trust**: judgment-changing content → `llm-wiki verify <path> --unverify` to drop `verified` (awaits human re-review). **Never set `verified` yourself.**
+9. **Update**: fresh frontmatter `generated: {by, at}`; re-describe `wiki/<domain>/index.md` if needed; deprecate duplicates (`x_supersedes`); append `wiki/log.md` (`## [<ISO8601>] consolidate | <topic>` — insert in reverse-chronological order, Edit with anchor, never rewrite the whole file); advance the watermark; run incremental `llm-wiki reindex`.
+10. **Report**: which concepts merged, which deprecated, citations before/after, what needs human review.
 
-## Không làm
+## Don't
 
-- Không co / mất citation. Không xoá nội dung của người. Không nâng `verified` thay người.
-- Không xoá file concept — chỉ deprecate + con trỏ.
-- Không gộp vượt quá `cap` một lần: nhiều topic → chạy từng topic, mỗi topic một lần reindex + báo cáo riêng.
+- Don't shrink/lose citations. Don't delete human content. Don't raise `verified` for the human.
+- Don't delete concept files — deprecate + pointer only.
+- Don't merge past the `cap` in one run: many topics → one topic per run, each with its own reindex + report.

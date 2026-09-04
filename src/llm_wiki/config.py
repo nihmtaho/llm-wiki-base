@@ -30,14 +30,12 @@ def user_config_base() -> Path:
     return Path.home() / ".config"
 
 
-# Convention cho từng client. App name casing tuỳ OS (capitalized trên macOS theo Apple HIG).
+# Convention cho từng client.
 #
-# Mỗi client có 2 scope MCP:
-#   user    → file config cá nhân, mọi project đều thấy (mặc định khi init)
-#   project → `<root>/.mcp.json`, commit vào VCS để cả team dùng (Claude Code +
-#             Command Code cùng convention `mcpServers`; OpenCode/Zed KHÔNG có
-#             project-scope MCP file nào trong convention của chúng → chỉ user).
-# `project_mcp` = None nghĩa là scope đó không tồn tại cho client này.
+# Init CHỈ ghi MCP vào file project-scope (`<root>/...`, commit vào VCS cho cả
+# team) — không đụng file config cá nhân (user scope). `project_mcp` = None
+# nghĩa là client đó chưa có file project-scope nào trong convention của nó
+# (vd Zed) → init bỏ qua client đó kèm thông báo.
 CLIENT_PATHS: dict[str, dict] = {
     "claude": {
         "config_dir": "claude",                  # lowercase everywhere
@@ -51,7 +49,7 @@ CLIENT_PATHS: dict[str, dict] = {
         "mcp_file": "opencode.json",             # full config, key "mcp"
         "skills_dir": "commands",                # flat .md files
         "fallback_dir": Path.home() / ".opencode",
-        "project_mcp": None,                     # không có project-scope MCP file
+        "project_mcp": "opencode.jsonc",         # per-project wiki (commit được)
     },
     "zed": {
         "config_dir": "Zed",                     # capital Z (Apple HIG)

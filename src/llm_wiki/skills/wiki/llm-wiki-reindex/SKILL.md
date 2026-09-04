@@ -1,66 +1,65 @@
 ---
 name: llm-wiki-reindex
 description: >
-  Dựng / làm mới chỉ mục search DERIVED từ markdown: BM25 page + BM25 chunk + (tuỳ chọn)
-  vector chunk. Tăng dần theo content-hash; có dry-run và full rebuild. Dùng khi ingest
-  xong, khi lint báo lệch index, hoặc sau khi đổi config retrieval. KHÔNG bao giờ commit
-  chỉ mục.
+  Build / refresh the DERIVED search indexes from markdown: BM25 page + BM25 chunk + (optional)
+  vector chunk. Incremental by content-hash; has dry-run and full rebuild. Use after ingest,
+  when lint reports index skew, or after retrieval config changes. NEVER commit indexes.
 ---
 
 # LLM Wiki — Reindex
 
-Markdown là nguồn sự thật; chỉ mục là **derived** — vứt đi rebuild được. Skill này chỉ lo một việc: làm cho chỉ mục khớp markdown và khớp config.
+Markdown is the source of truth; indexes are **derived** — throwable, rebuildable. This skill has one job: make the indexes match the markdown and the config.
 
-## Có gì trên đĩa
+## What's on disk
 
-| thành phần | nơi nằm | dựng khi |
+| component | location | built when |
 |---|---|---|
-| `pages_fts` (BM25 page) | `wiki/.wiki.db` | luôn |
-| `chunks_fts` (BM25 chunk) | `wiki/.wiki.db` | **luôn** — không phụ thuộc `vector` |
-| vector chunk (`.json` + `.npy`) | `rag/.rag_index/` | chỉ khi `[retrieval].vector = true` |
+| `pages_fts` (BM25 page) | `wiki/.wiki.db` | always |
+| `chunks_fts` (BM25 chunk) | `wiki/.wiki.db` | **always** — independent of `vector` |
+| vector chunks (`.json` + `.npy`) | `rag/.rag_index/` | only when `[retrieval].vector = true` |
 
-Hai kênh chunk dùng **chung** `tools/chunking.py` → cùng ranh giới, nên RRF giữa chúng có nghĩa.
+Both chunk channels share **`tools/chunking.py`** → same boundaries, so RRF between them is meaningful.
 
-**Không được index:** `wiki/index.md` + `wiki/log.md` (reserved), bản dịch `*.<lang>.md`, frontmatter, footnote verbatim (bằng chứng nguyên văn — vào index thì mọi query từ khoá đều ăn điểm giả).
+**Never indexed:** `wiki/index.md` + `wiki/log.md` (reserved), translations `*.<lang>.md`, frontmatter, verbatim footnotes (verbatim evidence — indexed, every keyword query would score phantom hits).
 
-## Chế độ
+## Modes
 
 ```bash
-llm-wiki reindex            # tăng dần (mặc định): chỉ file mới/đổi/xoá theo content-hash
-llm-wiki reindex --check    # dry-run: báo sẽ index gì, sẽ xoá gì, config drift, trạng thái chunk index
-llm-wiki reindex --full     # rebuild toàn bộ — BẮT BUỘC sau khi đổi chunk_tokens / embed_model / vector / fusion
+llm-wiki reindex            # incremental (default): only new/changed/deleted files by content-hash
+llm-wiki reindex --check    # dry-run: reports what would index/delete, config drift, chunk-index state
+llm-wiki reindex --full     # full rebuild — MANDATORY after changing chunk_tokens / embed_model / vector / fusion
 ```
 
-Chạy từ trong `<wiki_root>`. `watch` daemon tự reindex theo mtime mỗi `WATCH_REINDEX_SEC` — nên skill này chỉ cần khi bạn muốn kết quả **ngay** hoặc muốn debug.
+Run inside `<wiki_root>`. The `watch` daemon auto-reindexes on mtime every `WATCH_REINDEX_SEC` — so this skill is for when you want results **now** or need to debug.
 
-## Quy trình
+## Process
 
-1. **Xem trạng thái trước** (không ghi gì): `llm-wiki reindex --check`. Đọc:
-   - số file sẽ index / sẽ xoá;
-   - **config drift** — nếu in ra cảnh báo "config đổi so với lần reindex trước" → bạn phải `--full`, không phải incremental;
-   - **chunk index** — "chưa build" nghĩa là kênh `bm25_chunk` đang chết, search chỉ có 2 kênh.
-2. **Chạy đúng chế độ**:
-   - Không đổi config → `llm-wiki reindex`.
-   - Đổi `chunk_tokens` / `embed_model` / `vector` / `fusion` / `chunk_bm25` → `llm-wiki reindex --full`. Lý do phải full: incremental bỏ qua page có content-hash không đổi, nên wiki cũ sẽ **không bao giờ** có chunk nếu không force.
-   - Lần đầu sau khi nâng cấp `llm-wiki base install` mà `SCHEMA_VERSION` tăng → `--full` (đây là lý do bump version, không phải trang trí).
-3. **Xác nhận bằng số**, không bằng cảm giác:
+1. **Check state first** (writes nothing): `llm-wiki reindex --check`. Read:
+   - files to index / to delete;
+   - **config drift** — a "config changed since last reindex" warning means `--full`, not incremental;
+   - **chunk index** — "not built" means the `bm25_chunk` channel is dead and search runs on 2 channels.
+2. **Run the right mode**:
+   - No config change → `llm-wiki reindex`.
+   - Changed `chunk_tokens` / `embed_model` / `vector` / `fusion` / `chunk_bm25` → `llm-wiki reindex --full`. Why full: incremental skips pages whose content-hash didn't change, so an old wiki would **never** gain chunks without force.
+   - First run after a `llm-wiki base install` upgrade that bumped `SCHEMA_VERSION` → `--full` (that's what the version bump is for, not decoration).
+3. **Confirm with numbers**, not feelings:
    ```bash
-   llm-wiki config show          # giá trị THỰC (đã áp env override, có nhãn [env]/[toml]/[default])
-   llm-wiki reindex --check      # phải báo 0 file pending + không drift
+   llm-wiki config show          # EFFECTIVE values (env overrides applied, tagged [env]/[toml]/[default])
+   llm-wiki reindex --check      # must report 0 pending files + no drift
    ```
-   Số chunk của `chunks_fts` phải **bằng** số chunk trong `rag/.rag_index/chunks.json` khi `vector = true` — lệch nhau nghĩa là 2 kênh không cùng ranh giới (bug, không phải cấu hình).
-4. **Kiểm kênh chết**: `llm-wiki eval` (nếu có `eval/golden.toml`) in `[ERROR] kênh bị tắt vì lỗi` — phân biệt "tắt vì config" với "tắt vì hỏng".
-5. Báo cáo: N page indexed, chunk +/−, vector on/off, có drift không.
+   `chunks_fts` chunk count must **equal** the chunk count in `rag/.rag_index/chunks.json` when `vector = true` — a mismatch means the two channels disagree on boundaries (a bug, not a config).
+4. **Check dead channels**: `llm-wiki eval` (with `eval/golden.toml` present) prints `[ERROR] channel disabled by error` — distinguish "disabled by config" from "disabled by breakage".
+5. Report: N pages indexed, chunks +/−, vector on/off, drift or not.
 
-## Quan hệ với skill khác
+## Relations with other skills
 
-- `llm-wiki-ingest` / `llm-wiki-consolidate` gọi reindex **tăng dần** cho phần vừa đổi — đó là bước cuối của chúng.
-- `llm-wiki-lint` chỉ *phát hiện* index lệch; `reindex` *sửa*.
-- Đổi `chunk_tokens`/`embed_model`/bật-tắt `vector` ⇒ `--full`, rồi **đo lại** bằng `llm-wiki eval --compare` (số liệu cũ không còn so sánh được — fingerprint khác).
+- `llm-wiki-ingest` / `llm-wiki-consolidate` run **incremental** reindex for just-changed parts as their final step.
+- `llm-wiki-lint` only *detects* index skew; `reindex` *fixes* it.
+- Changing `chunk_tokens`/`embed_model`/toggling `vector` ⇒ `--full`, then **re-measure** with `llm-wiki eval --compare` (old numbers are incomparable — different fingerprint).
 
-## Không làm
+## Don't
 
-- Không commit chỉ mục: `.wiki.db`, `rag/.rag_index/`, `.env` đã nằm trong `.gitignore` của wiki. Đừng `git add -f`.
-- Không sửa markdown khi reindex — chỉ mục là một chiều (md → index).
-- Không coi chỉ mục là nguồn sự thật: nếu index và markdown khác nhau, **markdown đúng**.
-- Không rebuild `--full` "cho chắc" khi chưa đổi config — với `vector = true` nó re-embed toàn bộ (chi phí model + GPU/CPU), và xoá lịch sử so sánh được nếu fingerprint đổi.
+- Don't commit indexes: `.wiki.db`, `rag/.rag_index/`, `.env` are already in the wiki's `.gitignore`. Never `git add -f` them.
+- Don't edit markdown while reindexing — the index is one-directional (md → index).
+- Don't treat the index as truth: index vs markdown disagree → **markdown is right**.
+- Don't `--full` rebuild "to be safe" without a config change — with `vector = true` it re-embeds everything (model + GPU/CPU cost), and a changed fingerprint breaks comparability.

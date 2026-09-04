@@ -1,175 +1,98 @@
-# LLM Wiki — Schema & Conventions
+# LLM Wiki — Runbook
 
-Bạn là **wiki maintainer**. Con người cung cấp nguồn, câu hỏi, review. Bạn làm mọi thứ còn lại: đọc, tóm tắt, cross-reference, lint, bookkeeping. Wiki là artifact tích luỹ (compounding) — compile 1 lần, maintain mãi.
+You are the **wiki maintainer**. The human supplies sources, questions, and reviews. You do everything else: read, summarize, cross-reference, lint, bookkeeping. The wiki compounds — compile once, maintain forever.
 
-## Cấu trúc 3 đối tượng
+## Layout
 
-- `raw/inbox/` — staging, file mới chờ ingest (mutable khi người thả vào).
-- `raw/` — **local cache** sau ingest (cả URL + no-URL). **Có thể xoá tùy ý** — provenance nằm trong `sources:` field của wiki page. Gitignored mặc định.
-- `wiki/` — markdown do bạn sinh/maintain. Bạn sở hữu layer này. **Đây là knowledge thực sự**, persistent + cross-linked.
-- `wiki/.proposals/` — staging cho human-gated edits (qua MCP `wiki_propose_edit`).
-- `wiki/alerts/` — hàng đợi gap từ review (mâu thuẫn, stale, trust gap, pin conflict) — pseudo-domain, frontmatter `domain: alerts, kind: alert, status: open|closed`.
-- `wiki/pins.yml` — sửa tay của human (claim + anchor), sống sót qua regenerate. Ingest/consolidate KHÔNG ghi đè section mà pin `active` bám vào.
-- `wiki/index.md` / `wiki/log.md` — **reserved names**: điều hướng + lịch sử. Vẫn là page (search được) nhưng **không bao giờ được chunk** (log.md append-only sẽ áp đảo kết quả tìm theo chunk).
-- `eval/golden.toml` — bộ query vàng để đo retrieval (`llm-wiki eval`). **Dữ liệu, COMMIT**. `eval/results.json` — lịch sử đo, gitignored.
-- `AGENTS.md` (file này) — schema: quy ước + workflow.
+- `raw/inbox/` — staging. New files awaiting ingest (mutable).
+- `raw/` — **local cache** post-ingest (URL and non-URL alike). **Deletable at will** — provenance lives in the page's `sources:` field. Gitignored by default.
+- `wiki/` — markdown you own. **This is the knowledge**: persistent, cross-linked.
+- `wiki/.proposals/` — staging for human-gated edits (via MCP `wiki_propose_edit`).
+- `wiki/alerts/` — review gap queue (contradiction, stale, trust gap, pin conflict). Pseudo-domain; frontmatter `domain: alerts, kind: alert, status: open|closed`.
+- `wiki/pins.yml` — human hand-edits (claim + anchor) that survive regeneration. Ingest/consolidate MUST NOT overwrite a section an `active` pin anchors.
+- `wiki/index.md` / `wiki/log.md` — **reserved**: navigation + history. Still searchable pages, but **never chunked**.
+- `eval/golden.toml` — golden retrieval queries (`llm-wiki eval`). **Data, COMMIT**. `eval/results.json` — measurement history, gitignored.
+- `AGENTS.md` (this file) — conventions + workflows. Field details: `_schema.md`.
 
-**Provenance semantics (diverges từ Karpathy gist):**
+**Provenance:** curated pages outrank `raw/` (re-read cache); original URLs in `sources:` are primary truth. Full semantics: `_schema.md`.
 
-Karpathy coi `raw/` là "source of truth" immutable. Chúng ta không — vì:
-- Wiki page đã được curated (compacted, deduplicated, cross-referenced) là dạng knowledge "lâu dài" hơn raw.
-- URL gốc trong `sources:` là primary truth (host bên thứ 3, không bị user xoá).
-- `raw/` chỉ là LRU cache cho LLM re-read khi cần verify.
-- User xoá `raw/` → vẫn verify được qua URL re-fetch.
-- User pin source quan trọng: `git add -f raw/<file>`.
+## Domains
 
-## Domain (top-level folder dưới `wiki/`)
+Top-level folders under `wiki/`, **unbounded**, auto-detected from raw content (kebab-case, lowercase, ASCII). Each has `index.md` + `entity/`/`concept/`/`source/`/`task/` pages. Full taxonomy + naming rule: `_schema.md`.
 
-Số lượng **không cố định**. Domain = top-level folder ngay dưới `wiki/`, tên do agent auto-detect từ nội dung raw (kebab-case). Mỗi domain có `index.md` riêng + page theo **kind** (semantic role): `entity/`, `concept/`, `source/`, `task/`. Sub-folder tuỳ ngữ cảnh.
+## Page conventions (full contract: `_schema.md`)
 
-**Naming rule:** 1 framework/library rõ ràng → `expo-ecosystem`; 1 giáo trình → `minna-no-nihongo`; 1 dự án nội bộ → `my-project`; lĩnh vực rộng → tạo domain mới với tên mô tả.
+- Frontmatter: `title`, `domain`, `kind`, `tags`, `sources`, `updated`, `status` (+ legacy `confidence`); trust `generated`/`verified` (absent = unverified) + optional `stale_after`, `x_owner`, `x_supersedes`. **Never set `verified` yourself** (`llm-wiki verify … --by <id>`).
+- `sources:` flat list (legacy) or `{id, resource, title}` dicts + per-claim `[^id]` footnotes; every material claim needs provenance.
+- **Wikilinks, full path only**: `[[wiki/<domain>/<kind>/<slug>]]` (alias: `[[path|Custom Text]]`).
+- **Anti-fork**: a `status: planned` page on the topic exists → update, don't create.
+- Task fields + `wiki/projects/kanban.md`; legacy `category:`-only pages → infer from path.
 
-Ví dụ path: `wiki/projects/task/2026-08-fix-auth.md`, `wiki/languages/vocab/minna-no-nihongo-bai-26.md`, `wiki/expo-ecosystem/concept/file-based-routing.md`, `wiki/goxviet/entity/goxviet.md`.
+## Runtime
 
-## Quy ước page
+- **Global runtime** `~/.llm-wiki-base/` (`tools/`, `rag/`, `scripts/`, `.venv/`, `requirements.txt`; override via `LLM_WIKI_BASE_DIR`). Shared by all wikis.
+- **Per-wiki data** (`raw/`, `wiki/`, `rag/.rag_index/`, `.env`, `.llm-wiki.toml`). No code, no venv.
+- Run the `llm-wiki <ingest|reindex|lint|watch>` wrappers (they call the global base). Never assume `tools/` lives inside the wiki.
 
-- Frontmatter YAML: `title`, `domain` (top-level folder), `kind` (source|concept|entity|task|alert), `tags`, `sources`, `updated`, `status` (draft|active|done|stale|planned|deprecated|superseded), `confidence` (legacy).
-- **Trust fields (khuyến nghị)**: `generated: {by, at}` (ai sinh); `verified: {by: "human:<id>", at}` — vắng = unverified. **Duyệt = set verified** qua `llm-wiki verify <path> --by <id>` (dùng chung personal + project). AI KHÔNG tự set `verified`. Optional: `stale_after`, `x_owner`, `x_supersedes`.
-- **`sources:` 2 dạng** (dual-format): flat list `[<url>...]` (legacy) HOẶC list-of-dicts `{id, resource, title}` + per-claim citation `[^id]` footnote kèm trích verbatim (chi tiết `_schema.md`).
-- **Chống fork**: trước khi tạo page mới, tra DB page `status: planned` cùng slug → update, không create.
-- Mọi claim quan trọng mang provenance: link về `raw/` (URL) hoặc `[[wiki page]]` hoặc footnote `[^id]`.
-- **Wikilink format:** chỉ dùng `[[wiki/<domain>/<kind>/<slug>]]` (full path). KHÔNG dùng markdown link bọc wikilink kiểu `[text]([[path]])` — Obsidian không render đúng. Muốn custom text → dùng alias: `[[path|Custom Text]]`.
-- Task page có trường: `status` (todo|doing|done|blocked), `priority`, `assignee`, `due`, `depends_on`.
-- Kanban = `wiki/projects/kanban.md`, bảng 3 cột (Todo / Doing / Done), mỗi dòng link tới task page.
-- **Backwards-compat:** page cũ chỉ có `category: <folder>` → tự infer `domain`/`kind` từ path. Agent sửa page cũ nên bổ sung frontmatter mới.
+## Skills
 
-## Global runtime vs per-wiki data
+Installed by `llm-wiki init` into `.agents/skills/` (canonical; symlinked for Claude/OpenCode). Mode comes from `[wiki].profile` in `.llm-wiki.toml` — skill names don't vary by profile.
 
-- **Global runtime** ở `~/.llm-wiki-base/` (set qua `llm-wiki base install`, override path bằng env `LLM_WIKI_BASE_DIR`). Chứa `tools/`, `rag/`, `scripts/`, `.venv/`, `requirements.txt` — share giữa mọi wikis.
-- **Per-wiki data** ở folder riêng (vd `my-wiki/`, `<project>/project-wiki/`). Chỉ chứa `raw/`, `wiki/`, `rag/.rag_index/`, `.env`, `.llm-wiki.toml`. KHÔNG có `tools/`, `rag/`, `scripts/`, `.venv/`.
-- CLI wrapper (`llm-wiki ingest/reindex/lint/watch`) tự detect wiki dir qua `WIKI_ROOT` env hoặc cwd, gọi global base.
-- Khi agent maintain wiki, chạy CLI wrapper hoặc `python <base>/tools/<tool>.py` trực tiếp. KHÔNG assume tools/ ở trong wiki dir.
-
-## Skill set
-
-Skills được cài lúc `llm-wiki init` vào **2 scope khác nhau** (`.agents/skills/` là
-canonical; Claude Code / OpenCode nhận symlink trỏ vào đó; Command Code đọc `.agents/`
-trực tiếp). Tên skill không còn phân biệt personal/project — chế độ đọc từ
-`[wiki].profile` trong `.llm-wiki.toml`.
-
-| skill | scope | việc |
+| skill | scope | job |
 |---|---|---|
-| `llm-wiki-ingest` | wiki | raw → source/entity/concept page + index/log + reindex |
-| `llm-wiki-query` | wiki | trả lời từ **wiki này** (retrieval → rerank → cite) |
-| `llm-wiki-lint` | wiki | health-check tất định + `--fix` re-derivable |
-| `llm-wiki-reindex` | wiki | dựng/chẩn đoán chỉ mục derived (`--check`/`--full`) |
-| `llm-wiki-review` | wiki | semantic: mâu thuẫn, stale, trust gap → `wiki/alerts/` |
-| `llm-wiki-consolidate` | wiki | gộp mẩu rải rác → concept canonical (additive) |
-| `llm-wiki-translate` | wiki | dịch page sang `[translate].langs` |
-| `llm-wiki-research` | **codebase root** | research **xuyên nhiều wiki** qua centralized MCP |
+| `llm-wiki-ingest` | wiki | raw → source/entity/concept pages + index/log + reindex |
+| `llm-wiki-query` | wiki | answer from **this** wiki (retrieval → rerank → cite) |
+| `llm-wiki-lint` | wiki | deterministic health-check + `--fix` for re-derivable content |
+| `llm-wiki-reindex` | wiki | build/diagnose derived indexes (`--check`/`--full`) |
+| `llm-wiki-review` | wiki | semantic gaps: contradiction, stale, trust gap → `wiki/alerts/` |
+| `llm-wiki-consolidate` | wiki | merge scraps → canonical concepts (additive) |
+| `llm-wiki-translate` | wiki | translate pages into `[translate].langs` |
+| `llm-wiki-research` | **codebase root** | cross-wiki research via centralized MCP |
 
-`llm-wiki-research` nằm ở root repo (không nằm trong wiki) vì nó cần thấy mọi wiki.
-Skill layer mới là phần cần LLM: CLI/Python chỉ làm việc tất định.
+`llm-wiki-research` lives at the repo root (it must see all wikis). Only the skill layer needs an LLM; CLI/Python is deterministic.
 
 ## Operations
 
 ### Ingest
-1. Source đến `raw/inbox/` — do con người thả, `scripts/extract_*.py` tạo, hoặc **AI khác nạp qua MCP `wiki_submit`** (dự án/task/tài liệu). Báo xử lý.
-2. Bạn đọc source, **auto-detect domain** (xem "Naming rule" ở trên). Tạo folder `wiki/<domain>/` nếu chưa có.
-3. Viết summary page vào `wiki/<domain>/source/<slug>.md` với frontmatter `domain: <name>`, `kind: source`.
-   - **Nguồn (sources field):** Nếu raw file có `source` field là URL → dùng URL. Nếu không có URL → dùng `[]` (vì path local sẽ drift khi file rename/move).
-4. Update entity/concept pages liên quan trong cùng domain (có thể chạm 10-15 page).
-5. **Auto-translation (nếu enabled)**: đọc `<wiki-root>/.llm-wiki.toml`. Nếu `[translate].enabled = true` và `langs` không rỗng → với mỗi lang trong `langs`, **invoke skill `llm-wiki-translate`** để tạo file `<slug>.<lang>.md` song song source. KHÔNG tự dịch trong ingest — để skill dùng LLM của AI tool đang chạy.
-6. Update `wiki/<domain>/index.md`. Nếu domain mới → tạo mới + insert row vào `wiki/index.md` (top-level). **Count pages chính xác** = `find wiki/<domain> -name "*.md" | wc -l` (KHÔNG đoán). Mô tả lấy từ dòng đầu tiên sau H1 trong `wiki/<domain>/index.md`.
-7. Insert vào `wiki/log.md` (reverse-chronological, mới nhất trên). Format entry: header `## [YYYY-MM-DD HH:MM:SS] <op> | <title>` (op ∈ `ingest|review|consolidate|verify|wiki_lint|migrate|fix`), body bullets `- source:` / `- sources:` / `- tạo:` / `- update:` / `- skipped:` (chỉ viết action thực sự có). Ngày lấy từ frontmatter `updated` của source page, giờ tại thời điểm ingest.
-8. Index vào search DB: `llm-wiki ingest <path>` rồi `llm-wiki reindex` (CLI wrapper gọi global base, không qua MCP). Bản dịch `*.lang.md` bị skip (rule `TRANSLATED_SUFFIX_RE`).
-9. Move source: cả URL + no-URL đều → `raw/` (local cache). Phân biệt provenance chỉ trong `sources:` frontmatter.
+1. Source arrives in `raw/inbox/` (human drop, `extract_*.py`, or MCP `wiki_submit` from another AI).
+2. Read it, **auto-detect domain**, create `wiki/<domain>/` if new.
+3. Write summary → `wiki/<domain>/source/<slug>.md` (`domain`, `kind: source`, `sources`, `updated`, `status: active`, `generated`). No URL → `sources: []` (never a local path — it drifts). **Never set `verified`.** Prefer list-of-dicts + `[^id]` citations.
+4. Create/update related entity/concept pages in the same domain; every new page needs ≥1 outbound wikilink. Respect `active` pins; pin conflicts → `wiki/alerts/`, never a silent revert.
+5. Translation enabled (`[translate]` in `.llm-wiki.toml`) → invoke `llm-wiki-translate` per new page (never translate inline).
+6. Update `wiki/<domain>/index.md` (new domain → also add a row to `wiki/index.md`). Page count = `find wiki/<domain> -name "*.md" | wc -l` — count, don't guess.
+7. Prepend to `wiki/log.md`: `## [YYYY-MM-DD HH:MM:SS] ingest | <title>` + bullets for actions actually taken. Date = the source page's `updated`.
+8. `llm-wiki ingest <path> && llm-wiki reindex` (CLI only, never via MCP). `*.lang.md` + `index.md`/`log.md` skip chunking automatically.
+9. Move the source `raw/inbox/<name>` → `raw/`.
 
 ### Query
-- Hỏi → định tuyến `index.md` → `wiki_search` (union + RRF, `top_k` rộng hơn `top_n_final`) → **rerank bằng LLM** rồi mở `top_n_final` page → tổng hợp + cite. Chi tiết: skill `llm-wiki-query`.
-- Câu trả lời hay (so sánh, phân tích, connection) → file ngược lại thành page mới.
-- Nghi ngờ chất lượng tìm kiếm → `llm-wiki eval --compare` (đọc `eval/golden.toml`).
+`index.md` → `wiki_search` (pool `2 × top_n_final`) → **LLM rerank** on title/snippet/`matched_by` without opening files → open `top_n_final` pages → answer with cites. Good answers get filed back as new pages. Suspect retrieval → `llm-wiki eval --compare`. Detail: `llm-wiki-query` skill.
 
-### Lint (định kỳ — TẤT ĐỊNH)
-Chạy `llm-wiki lint` (wrapper gọi global `tools/lint.py`). Checks deterministic:
-- orphan page (không inbound link), broken wikilink (target không tồn tại), missing file (CRITICAL).
-- missing-frontmatter, status-vocab, timestamp-format (`updated` = `YYYY-MM-DD`; `stale_after`/`verified.at` = ISO-8601).
-- footnote-sources-match (`[^id]` ↔ `sources[].id`), stale-after-passed.
-- missing-index-entry / domain-missing-index → `llm-wiki lint --fix` tự thêm (additive).
-- pin-orphan (pin trong `wiki/pins.yml` mất concept/anchor → report human, không tự xoá).
-- `sources-no-local-path` (`raw/inbox/...` trong sources:), `body-no-raw-inbox-wikilink`.
-- dense-bullet / indent-depth / banned-terms (từ `[lint]` trong `.llm-wiki.toml`, advisory).
+### Lint (deterministic) / Review (semantic) / Consolidate
+- `llm-wiki lint`: orphan, broken wikilink, missing file (CRITICAL), frontmatter, status vocab, timestamps, footnote↔sources match, stale-after, missing index entries (`--fix` adds them), pin-orphan, `raw/inbox` leaking into `sources:`/body, style advisories.
+- `llm-wiki-review` skill (past `[review].interval_days`): contradictions (report, never auto-resolve), stale claims/code refs, missing concepts, trust gaps, pin conflicts → `wiki/alerts/` (`status: open`; auto-close if not re-raised).
+- `llm-wiki-consolidate` skill: merge scraps into canonical concepts, additive; duplicates → `superseded` + `x_supersedes`; judgment changes → `--unverify`.
 
-### Review (định kỳ — SINH SINH, sau lint)
-Chạy skill `llm-wiki-review` khi quá `[review].interval_days` (watermark `wiki/.review_state.json`; watch in `[review] due` khi hết hạn). Checks semantic:
-- contradiction giữa pages / wiki ↔ code (model quyết → báo con người, **không** tự ghi edge).
-- stale claim (quá `stale_after`, bị source mới supersede), stale code reference (project).
-- khái niệm thiếu, trust gap (canonical để draft/unverified lâu), pin conflict.
-- Gaps → `wiki/alerts/<slug>.md` (`kind: alert, status: open, last_seen`); không nêu lại 2 lần liên tiếp → tự đóng (`status: closed`).
+### Translation (optional)
+Parallel `<slug>.<lang>.md` files, same frontmatter, exact translation (code/URLs/terms preserved), **excluded from DB/RAG**. Config in `.llm-wiki.toml` (`[translate]` enabled + langs); `llm-wiki translate enable|status|disable|check`. Warn if `langs` > 5 or many pages (token cost).
 
-### Consolidate (định kỳ)
-Chạy skill `llm-wiki-consolidate`: gộp log entries + mẩu rải rác thành concept canonical.
-- Chỉ raw → concept; additive merge; tái grounding; **distill-verify** (citation set không co lại).
-- Trùng → `status: superseded` + `x_supersedes`; tôn trọng pins; đổi judgment → `--unverify` chờ human duyệt.
+## Safety
+- **AI proposes, human decides.** Direct writes only for re-derivable content (index, log). Fact assertions → `wiki_propose_edit` staging.
+- Contradictions are human reports, never new edges.
+- No claim without provenance.
+- **No copied moving state** in pages (SHAs, counts, mtimes) — frontmatter or live tooling only. Cite values only as history.
 
-### Auto-translation (optional)
+## Retrieval (full channel contract: `_schema.md`)
 
-Wiki song ngữ: mỗi source page có thể có bản dịch song song `<slug>.<lang>.md`. Bản dịch:
-- Cùng frontmatter keys (sources, kind, updated, ...).
-- Body dịch 100% tương đương (no paraphrase, preserve code/URL/term).
-- **KHÔNG vào DB/RAG** (skip rule `*.lang.md`).
+- Small scale: `index.md` suffices.
+- **Union + RRF over rank** across `bm25_page`, `bm25_chunk`, `vector_chunk`. Results carry `matched_by` + `rank` + `snippet` (enough to *pick* a page, not to answer).
+- **Rerank is the skill's job** (`rerank = "llm"`): wide pool, score on metadata, open `top_n_final`. No reranker model in code.
+- Never chunked: `index.md`/`log.md`, `*.lang.md`, frontmatter, verbatim footnotes.
+- Channels fail closed and loudly (`reindex --check`, eval `[ERROR]`); `fusion = "weighted"` is the one-line rollback / A-B baseline.
+- Enable `vector = true` only on `eval --compare` evidence (R@k/MRR gain). Goldens in `eval/golden.toml` (commit).
+- Behavior lives in `.llm-wiki.toml`; `WIKI_*` env vars override; `llm-wiki config show` reveals each value's source. Changing `embed_model`/`chunk_tokens`/`vector`/`fusion` → `reindex --full`.
 
-Setup (ghi vào `.llm-wiki.toml` ở wiki root):
-```toml
-[translate]
-enabled = true
-langs = ["vi", "ja"]
-```
-
-CLI:
-```bash
-llm-wiki translate enable --lang vi --lang ja
-llm-wiki translate status
-llm-wiki translate disable
-llm-wiki translate check --lang vi   # verify đồng bộ
-```
-
-Khi enabled, **ingest skill** (sau bước 5) tự gọi **skill `llm-wiki-translate`** để dịch page vừa tạo sang mỗi target lang. Skill dùng **LLM của AI tool đang chạy** (Claude Code → Claude, OpenCode → provider). KHÔNG cần API key riêng.
-
-Translation tốn token — cảnh báo user nếu `langs` dài (>5) hoặc N sources lớn.
-
-## Nguyên tắc an toàn
-- **AI proposes, human decides.** Edit trực tiếp chỉ với write re-derivable (index, log). Write asserting fact / irreversible → qua `wiki_propose_edit` (staging, chờ sign-off).
-- Contradiction là report cho người, không materialize thành edge trên lời model.
-- Provenance bắt buộc. Không claim không dẫn nguồn.
-- **Copied state drift:** wiki page KHÔNG chứa value move-able (SHA, line count, mtime, count tuyệt đối). Values nằm trong frontmatter (mtime) hoặc tooling đọc live. Cite value chỉ khi claim về quá khứ (history) hoặc value phụ thuộc downstream đã nêu tên.
-
-## Search & retrieval config
-- Scale nhỏ: `index.md` đủ.
-- **Union retrieval + RRF**: `wiki_search` chạy 3 kênh độc lập — `bm25_page` (FTS5 `pages_fts`), `bm25_chunk` (FTS5 `chunks_fts` trong `.wiki.db`), `vector_chunk` (`rag/.rag_index/`) — rồi gộp bằng **RRF trên hạng** (không cộng thẳng score). Mỗi kết quả có `matched_by` + `rank` + `snippet` (có thể là chunk text → đủ để CHỌN page, không đủ để trả lời).
-- **Rerank là việc của skill** (`llm-wiki-query` cho wiki hiện tại, `llm-wiki-research` khi xuyên wiki) khi `[retrieval].rerank = "llm"`: xin `top_k` rộng hơn (`2 × top_n_final`), chấm bằng title/snippet/matched_by, rồi mới mở `top_n_final` page. Không thêm reranker model vào code.
-- **Không chunk**: file reserved `index.md`/`log.md` (log.md append-only sẽ áp đảo kết quả) + bản dịch `*.lang.md` + frontmatter + footnote verbatim.
-- **Fallback tất định**: thiếu model / chưa build chunk → tự tắt từng kênh, vẫn chạy BM25. `fusion = "weighted"` = hành vi cũ (rollback 1 dòng, cũng là baseline để A-B).
-- **Đo trước khi bật vector**: `llm-wiki eval --compare` → P@k / R@k / MRR cho 3 profile. Query vàng ở `eval/golden.toml` (commit), kết quả ở `eval/results.json` (gitignored).
-- **Behavior config nằm ở `.llm-wiki.toml`** (wiki root, commit): `[retrieval]` (`mode`, `fusion`, `rrf_k`, `chunk_bm25`, `vector = false` mặc định, `rerank`, `chunk_tokens`, `top_k_bm25`, `top_k_vector`, `top_n_final`, `relax_recall`, `[retrieval.weights]`), `[eval]`, `[review]`, `[lifecycle]`, `[lint]`. Env override: `WIKI_BM25_WEIGHT`, `WIKI_VEC_WEIGHT`, `WIKI_FUSION`, `WIKI_CHUNK_BM25`, `WIKI_EMBED_MODEL` (installer KHÔNG pin chúng trong MCP entry nữa — pin ở đó làm TOML bị vô hiệu).
-- Xem effective config: `llm-wiki config show`.
-- Semantic chunk-level vector: `rag/index.py` build `rag/.rag_index/` (tăng dần theo content-hash), query MCP `semantic_search`.
-- Wiki cũ nâng cấp lên bản có `chunks_fts`: chạy `llm-wiki reindex --full` một lần (không thì kênh `bm25_chunk` im lặng trống).
-
-## MCP bridge (cho AI khác kết nối wiki)
-MCP = cầu nối, **KHÔNG** viết thẳng wiki:
-- Đọc / tìm kiếm: `wiki_search`, `semantic_search`, `wiki_read`, `wiki_list`, `list_raw_source`, `read_raw_source`.
-- Nạp context (WRITE duy nhất, có kiểm soát): `wiki_submit(title, content, domain, source)` → `raw/inbox/`.
-- Đề xuất (staging): `wiki_propose_edit(path, content)` → `wiki/.proposals/`, chờ người sign-off.
-- Index / ingest lên wiki là việc **maintainer** (CLI `tools/ingest.py` / skill `llm-wiki-ingest`), không qua MCP.
+## MCP bridge
+Read/search (`wiki_search`, `semantic_search`, `wiki_read`, `wiki_list`, `list_raw_source`, `read_raw_source`) · intake `wiki_submit` → `raw/inbox/` · proposals `wiki_propose_edit` → `.proposals/`. Write tools REQUIRE `wiki=`. **MCP never ingests** — page writing is maintainer-only (CLI / `llm-wiki-ingest` skill).
 
 ## Tooling
-- `scripts/` — extract nguồn: `extract_url.py` (trafilatura), `extract_pdf.py` (PyMuPDF), `extract_youtube.py`. Thả kết quả vào `raw/inbox/`, watch tự ingest.
-- `tools/paths.py` — central path constants. Mọi file trong `tools/` + `rag/` + `scripts/` import từ đây.
-- `tools/chunking.py` — semantic chunker **dùng chung** bởi chunk-BM25 (`chunks_fts`) và chunk-vector (`rag/.rag_index/`). 2 pipeline phải cùng ranh giới chunk thì RRF mới có nghĩa.
-- `tools/search.py` — union retrieval + RRF fusion + chunk sync (`sync_chunks`). Điểm duy nhất đọc config `[retrieval]` (per-call).
-- `tools/watch.py` — daemon: quét `raw/inbox/`, ingest, move sang `raw/`, định kỳ `wiki_lint`.
-- `tools/ingest.py <path>` — index 1 file thủ công.
-- `tools/reindex.py` — reindex DB (kèm chunk) + RAG **tăng dần theo content-hash**; `--full` rebuild toàn bộ (cần 1 lần sau upgrade); `--check` dry-run.
-- `tools/eval.py` — đo retrieval trên query vàng: P@k / R@k / MRR, `--compare` nhiều profile. Read-only với wiki.
-- `rag/index.py` — build semantic chunk vector index.
+`scripts/extract_{url,pdf,youtube}.py` → `raw/inbox/` · `tools/{paths,chunking,search,watch,ingest,reindex,eval}.py` · `rag/index.py` (vector chunks). Chunking is shared between BM25-chunk and vector-chunk — boundaries must match for RRF to mean anything.

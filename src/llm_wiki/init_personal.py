@@ -11,26 +11,25 @@ Cwd = wiki dir. Tạo raw/, wiki/, rag/.rag_index/ + skeleton + .agents/skills/ 
 """
 from pathlib import Path
 
-from rich.console import Console
+import typer
 from rich.prompt import Confirm
 
 from llm_wiki._package_data import read_template, template_exists
 from llm_wiki._skills import install_skills
+from llm_wiki import _ui
+from llm_wiki._ui import console
 from llm_wiki.base import get_base_dir
 from llm_wiki.config import supported_clients
 from llm_wiki.config_file import ensure_wiki_identity
 from llm_wiki.installer import install_centralized_mcp, CENTRALIZED_SERVER_NAME
 from llm_wiki.registry import add_wiki
 
-console = Console()
-
-AGENT_CONFIGS = ["_schema.md", "AGENTS.md", "CLAUDE.md"]
-
 
 def _copy_agent_configs(cwd: Path) -> list[str]:
-    """Copy agent config templates (_schema.md, AGENTS.md, CLAUDE.md) to wiki root."""
+    """Copy agent config templates vào wiki: AGENTS.md (+ _schema.md) ở root,
+    CLAUDE.md (chỉ tag @AGENTS.md) vào .claude/."""
     copied: list[str] = []
-    for name in AGENT_CONFIGS:
+    for name in ("_schema.md", "AGENTS.md"):
         if not template_exists("templates", "agents", name):
             continue
         dst = cwd / name
@@ -38,6 +37,13 @@ def _copy_agent_configs(cwd: Path) -> list[str]:
             continue
         dst.write_text(read_template("templates", "agents", name), encoding="utf-8")
         copied.append(name)
+    if template_exists("templates", "agents", "CLAUDE.md"):
+        dst = cwd / ".claude" / "CLAUDE.md"
+        if not dst.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text(read_template("templates", "agents", "CLAUDE.md"),
+                           encoding="utf-8")
+            copied.append(".claude/CLAUDE.md")
     return copied
 
 
@@ -48,7 +54,6 @@ def run(
     skills_target: str = "universal",
     clients: list[str] | None = None,
     skip_mcp: bool = False,
-    mcp_scope: str = "user",
     lang: str | None = None,
     register: bool = True,
 ) -> None:
@@ -56,14 +61,13 @@ def run(
     base_dir = get_base_dir()
 
     if not base_dir.exists():
-        console.print(f"[red]Error:[/red] Global base chưa cài: {base_dir}")
-        console.print(f"  Chạy trước: [cyan]llm-wiki base install[/cyan]")
-        raise SystemExit(1)
+        _ui.err_panel(f"Global base chưa cài: {base_dir}", "llm-wiki setup tools")
+        raise typer.Exit(1)
 
-    console.print(f"[bold]Init personal wiki:[/bold] {wiki_name}")
-    console.print(f"  at [cyan]{cwd}[/cyan]")
-    console.print(f"  base: [cyan]{base_dir}[/cyan] (global runtime)")
-    console.print(f"  MCP:  centralized server [cyan]{CENTRALIZED_SERVER_NAME}[/cyan]")
+    _ui.banner(f"Init personal wiki: {wiki_name}",
+               f"at [cyan]{cwd}[/cyan]\n"
+               f"base: [cyan]{base_dir}[/cyan] (global runtime)\n"
+               f"MCP:  centralized server [cyan]{CENTRALIZED_SERVER_NAME}[/cyan]")
 
     # 1. Check empty
     if any(cwd.iterdir()) and not force:
@@ -91,7 +95,7 @@ def run(
         )
         console.print("  [green]✓[/green] wiki/log.md")
 
-    # 4. Agent config files (_schema.md, AGENTS.md, CLAUDE.md)
+    # 4. Agent config files (AGENTS.md + _schema.md ở root, CLAUDE.md ở .claude/)
     copied = _copy_agent_configs(cwd)
     if copied:
         console.print(f"  [green]✓[/green] agent configs: {', '.join(copied)}")
@@ -112,7 +116,7 @@ def run(
     # `[wiki].profile` phải đúng loại wiki — skill đọc nó để chọn chế độ.
     # Chạy cả khi file đã tồn tại (re-init wiki cũ chưa có section này).
     if ensure_wiki_identity(cwd / ".llm-wiki.toml", profile="personal", lang=lang):
-        console.print("  [green]✓[/green] .llm-wiki.toml: \\[wiki\\].profile = personal"
+        console.print("  [green]✓[/green] .llm-wiki.toml: \\[wiki].profile = personal"
                       + (f", lang = {lang}" if lang else ""))
 
     # 5c. eval/golden.toml — bộ query vàng cho `llm-wiki eval` (commit vào wiki repo)
@@ -146,13 +150,14 @@ def run(
         console.print("  [dim]registry: BỎ QUA (--no-register) — AI tool sẽ không thấy "
                       "wiki này qua `wiki=`[/dim]")
 
-    # 8. Install centralized MCP config (default — not optional)
+    # 8. Install centralized MCP config vào per-project/personal wiki
+    #    (file MCP nằm trong chính wiki này, commit vào VCS được).
     mcp_results: list = []
     mcp_failed: list[tuple[str, str]] = []
     if not skip_mcp:
         cli_clients = clients or ["claude"]
         console.print()
-        console.print("[bold]Install centralized MCP config:[/bold]")
+        console.print("[bold]Cài MCP vào per-project/personal wiki:[/bold]")
         for client in cli_clients:
             if client not in supported_clients():
                 console.print(f"  [red]✗[/red] unknown client '{client}'. "
@@ -160,10 +165,13 @@ def run(
                 mcp_failed.append((client, "client không được hỗ trợ"))
                 continue
             try:
-                res = install_centralized_mcp(client, scope=mcp_scope,
-                                              project_root=cwd if mcp_scope == "project" else None)
+                res = install_centralized_mcp(client, scope="project",
+                                              project_root=cwd)
                 mcp_results.append(res)
                 console.print(f"  [green]✓[/green] {res.describe()}")
+            except ValueError as e:
+                # Client chưa có file MCP project-scope (vd zed) → bỏ qua, không lỗi.
+                console.print(f"  [dim]–[/dim] {client}: {e}")
             except Exception as e:
                 mcp_failed.append((client, str(e)))
                 console.print(f"  [red]✗[/red] {client}: {e}")
@@ -184,21 +192,21 @@ def run(
                           "data (`llm-wiki base install` lại sau khi nâng cấp)")
 
     # 10. Done
-    console.print()
-    console.print("[bold green]✓ Personal wiki ready.[/bold green]")
-    console.print()
-    console.print(f"  Data:        {cwd}/")
-    console.print(f"  Base runtime: {base_dir}/ (global, shared)")
-    console.print(f"  Registry:    '{wiki_name}' in centralized MCP registry")
+    rows = [
+        f"Data:         {cwd}/",
+        f"Base runtime: {base_dir}/ (global, shared)",
+        f"Registry:     '{wiki_name}' in centralized MCP registry",
+    ]
     for res in mcp_results:
-        console.print(f"  MCP {res.client:<11} {res.describe()}")
+        rows.append(f"MCP {res.client:<11} {res.describe()}")
     if skip_mcp:
-        console.print("  MCP:         [dim]bỏ qua[/dim]")
+        rows.append("MCP:          [dim]bỏ qua[/dim]")
     elif mcp_failed:
-        console.print(f"  MCP:         [red]LỖI với {', '.join(c for c, _ in mcp_failed)}[/red] "
-                      "— sửa rồi chạy lại init này (nó idempotent, không phá dữ liệu)")
+        rows.append(f"MCP:          [red]LỖI với {', '.join(c for c, _ in mcp_failed)}[/red] "
+                    "— sửa rồi chạy lại init này (nó idempotent, không phá dữ liệu)")
     if installed:
-        console.print(f"  Skills:      {cwd}/.agents/skills/ (scope = wiki này + cross-wiki research)")
+        rows.append(f"Skills:       {cwd}/.agents/skills/ (scope = wiki này + cross-wiki research)")
+    _ui.done_panel("Personal wiki ready", rows)
     console.print()
     console.print("Next steps:")
     console.print(f"  1. Drop sources vào: {cwd}/raw/inbox/")

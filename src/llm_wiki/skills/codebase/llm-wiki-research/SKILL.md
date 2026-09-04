@@ -1,89 +1,89 @@
 ---
 name: llm-wiki-research
 description: >
-  Research KIẾN THỨC qua nhiều wiki được chỉ định (không phải trong một wiki duy nhất) —
-  cross-wiki search bằng MCP `llm-wiki-base-mcp`, đối chiếu personal ↔ project wiki,
-  fallback sang codegraph/grep khi wiki chưa có. Cài ở ROOT của codebase (không nằm trong
-  wiki). Dùng khi câu hỏi có thể có câu trả lời ở wiki khác, hoặc khi cần biết máy này có
-  wiki nào.
+  Research KNOWLEDGE across designated wikis (not inside a single wiki) —
+  cross-wiki search via MCP `llm-wiki-base-mcp`, contrasting personal ↔ project wikis,
+  falling back to grep when wikis lack it. Installed at the codebase ROOT (outside any
+  wiki). Use when the answer may live in another wiki, or to learn what wikis exist on
+  this machine.
 ---
 
 # LLM Wiki — Research (cross-wiki)
 
-## Ranh giới với `llm-wiki-query`
+## Boundary with `llm-wiki-query`
 
-| | `llm-wiki-research` (skill này) | `llm-wiki-query` |
+| | `llm-wiki-research` (this skill) | `llm-wiki-query` |
 |---|---|---|
-| phạm vi | **nhiều wiki** được chỉ định, hoặc `wiki=""` = tất cả | **một** wiki bạn đang đứng |
-| vị trí cài | `root_project/.agents/skills/` (codebase root) | `<wiki>/.agents/skills/` |
-| mục đích | tìm + đối chiếu + decide nguồn nào đáng tin | trả lời + ghi synthesis vào wiki đó |
-| write-back | chỉ `wiki_submit` / `wiki_propose_edit` (staging) | được phép ghi page + index + log (maintainer) |
+| scope | **many** designated wikis, or `wiki=""` = all | **one** wiki you stand in |
+| installed at | `root_project/.agents/skills/` (codebase root) | `<wiki>/.agents/skills/` |
+| purpose | find + contrast + decide which source to trust | answer + write synthesis into that wiki |
+| write-back | only `wiki_submit` / `wiki_propose_edit` (staging) | may write pages + index + log (maintainer) |
 
-Nếu bạn đã biết câu trả lời nằm ở wiki nào → dùng `llm-wiki-query`, đừng cross-wiki vô ích.
+If you already know which wiki holds the answer → use `llm-wiki-query`, don't go cross-wiki for nothing.
 
 ## Server & registry
 
-`llm-wiki-base-mcp` là **một server duy nhất cho cả máy**, đọc `~/.llm-wiki-base/registry.toml` để biết có những wiki nào:
+`llm-wiki-base-mcp` is **one server for the whole machine**, reading `~/.llm-wiki-base/registry.toml` for known wikis:
 
 ```toml
 [[wikis]]
-name = "wiki-test"        # key tra cứu — dùng làm tham số `wiki=`
-id   = "6f2a…"            # UUID ổn định — không đổi khi bạn đổi tên folder
+name = "wiki-test"        # lookup key — use as the `wiki=` parameter
+id   = "6f2a…"            # stable UUID — survives folder renames
 path = "/Users/…/wiki-test"
 type = "personal"         # personal | project
 ```
 
 ```bash
-llm-wiki wiki list                      # xem tên + type + path + id
+llm-wiki wiki list                      # names + types + paths + ids
 llm-wiki wiki add <name> <path> --type personal
 llm-wiki wiki remove <name>
 ```
 
-**Không có `wiki=` nào trong registry ⇒ MCP không thấy wiki đó.** Wiki chưa đăng ký thì search rỗng, không phải lỗi retriever.
+**No `wiki=` in the registry ⇒ MCP can't see that wiki.** An unregistered wiki searches empty — that's not a retriever bug.
 
-## Khi nào dùng
+## When
 
-- Câu hỏi không rõ thuộc wiki nào ("cách tôi đã deploy X", "project này có tiền lệ xử lý Y chưa").
-- Cần đối chiếu: project wiki nói A nhưng personal wiki (đọc được qua cross-wiki) đã có quyết định B.
-- Before coding trong repo có project wiki: hiểu stack / architecture / convention.
-- Cần biết máy này có knowledge base nào để quyết định nơi ghi.
+- The question's home wiki is unclear ("how did I deploy X", "does this project already handle Y").
+- Contrasting needed: the project wiki says A but the personal wiki (visible cross-wiki) already decided B.
+- Before coding in a repo with a project wiki: learn stack / architecture / conventions.
+- Deciding which knowledge bases exist on this machine and where to write.
 
-## Quy trình
+## Process
 
-1. **Liệt kê wiki trước** — `llm-wiki wiki list` (hoặc MCP resource `registry://wikis`). Chọn tập wiki định search; ghi nhớ `type`.
+1. **List wikis first** — `llm-wiki wiki list` (or MCP resource `registry://wikis`). Pick the search set; note each `type`.
 2. **Search**:
-   - Đúng 1 wiki → `wiki_search(query, top_k = 2 × top_n_final, wiki="<tên>")`.
-   - Nhiều/nghi ngờ → `wiki_search(query, top_k, wiki="")` = cross-wiki; **mỗi kết quả mang field `wiki`** — bắt buộc đọc nó trước khi trích dẫn, nếu không bạn gán nhầm kiến thức cá nhân cho project.
-   - Union retrieval: BM25 page ∪ BM25 chunk ∪ vector chunk, gộp bằng **RRF trên hạng**; `vector = false` ở wiki nào → wiki đó tự degrade sang 2 kênh text, vẫn chạy.
-3. **Rerank bằng LLM của bạn** khi `[retrieval].rerank = "llm"` (đọc `.llm-wiki.toml` của từng wiki — config là per-wiki): chấm chỉ bằng `title` + `snippet` + `matched_by`, KHÔNG mở file; ưu tiên (a) đúng chủ đề chứ không trùng từ, (b) nhiều kênh cùng bắn ra, (c) `verified.by: human:*`, (d) page canonical (`concept`) thay vì `source`/`index`; rồi cắt xuống `top_n_final`.
-4. **Đọc page** (`wiki_read(path, wiki)`) — snippet/chunk chỉ đủ để **chọn** page, không đủ để trả lời. Mở rộng bằng wikilink.
-5. **Trust tier + profile check** trước khi tin: `status: draft` / không `verified` → unverified; `stale_after` quá hạn → stale; page của **wiki khác loại** (personal ↔ codebase) → coi là *bối cảnh*, không phải sự thật của repo này.
-6. **[fallback] Wiki chưa có → mới tìm code/tech:**
-   1. wiki (`wiki_search`/`wiki_read`) — đã curated, có provenance, nhanh;
-   2. `codegraph` (nếu cài) — graph call/import, điều hướng tốt hơn grep;
-   3. `grep` / `find` — nước cuối.
-   **Không nhảy thẳng vào grep khi wiki chưa được check.** Wiki mất công maintain — dùng nó.
-7. **Task lớn**: research xong → vào plan mode, cite `[[wiki/<domain>/kind/slug]]` (full path, không bọc wikilink trong markdown link), chỉ rõ gaps, verification phải reproducible. Plan mâu thuẫn wiki → ưu tiên wiki (có provenance), flag conflict. Breaking change → section "Breaking:" riêng.
-8. **Không tìm thấy** → nói rõ wiki thiếu gì, rồi đề xuất nạp (xem write-back). Đừng bịa.
+   - Exactly 1 wiki → `wiki_search(query, top_k = 2 × top_n_final, wiki="<name>")`.
+   - Many/unsure → `wiki_search(query, top_k, wiki="")` = cross-wiki; **every result carries a `wiki` field** — read it before citing, or you'll attribute personal knowledge to the project.
+   - Union retrieval: BM25 page ∪ BM25 chunk ∪ vector chunk, fused by **RRF over rank**; a wiki with `vector = false` degrades to 2 text channels on its own, still runs.
+3. **Rerank with your LLM** when `[retrieval].rerank = "llm"` (read each wiki's `.llm-wiki.toml` — config is per-wiki): score on `title` + `snippet` + `matched_by` only, do NOT open files; prefer (a) topical fit over word overlap, (b) multi-channel hits, (c) `verified.by: human:*`, (d) canonical pages (`concept`) over `source`/`index`; then cut to `top_n_final`.
+4. **Read pages** (`wiki_read(path, wiki)`) — snippets/chunks only *pick* pages, they don't answer. Expand via wikilinks.
+5. **Trust tier + profile check** before believing: `status: draft` / no `verified` → unverified; past `stale_after` → stale; a page from a **different-type wiki** (personal ↔ codebase) is *context*, not this repo's truth.
+6. **[fallback] Wiki lacks it → search code/tech next:**
+   1. wiki (`wiki_search`/`wiki_read`) — curated, provenanced, fast;
+   2. `grep` / `find` — last resort.
+   For project wikis we recommend the user install the codegraph plugin at the repo root (the agent picks it up when present) — call/import graphs navigate better than grep.
+   **Don't jump straight to grep before checking the wiki.** The wiki was expensive to maintain — use it.
+7. **Big task**: after researching → plan mode, cite `[[wiki/<domain>/kind/slug]]` (full path, never wrap a wikilink in a markdown link), name gaps explicitly, keep verification reproducible. A plan contradicting the wiki → the wiki wins (provenanced), flag the conflict. Breaking changes → their own "Breaking:" section.
+8. **Not found** → say what's missing from the wiki, then propose intake (see write-back). Don't fabricate.
 
-## Write-back (chỉ staging — AI proposes, human decides)
+## Write-back (staging only — AI proposes, human decides)
 
-| việc | tool | đích |
+| job | tool | target |
 |---|---|---|
-| nạp tài liệu mới | `wiki_submit(title, content, wiki, domain, source)` | `raw/inbox/` của wiki **do human chỉ định** |
-| đề xuất sửa page | `wiki_propose_edit(path, content, wiki)` | `wiki/.proposals/` → chờ `llm-wiki proposals apply\|discard` |
+| submit new material | `wiki_submit(title, content, wiki, domain, source)` | `raw/inbox/` of the **human-designated** wiki |
+| propose a page edit | `wiki_propose_edit(path, content, wiki)` | `wiki/.proposals/` → awaiting `llm-wiki proposals apply\|discard` |
 
-- **Bắt buộc chỉ định `wiki` khi write.** Không tự chọn wiki để ghi; không suy ra từ nội dung.
-- **MCP không ingest.** Không có tool nào ghi thẳng `wiki/`, `index.md`, `log.md`, và không có tool sửa `.proposals` — duyệt là CLI + người.
+- **`wiki` is mandatory on write.** Never pick the target wiki yourself; never infer it from content.
+- **MCP doesn't ingest.** No tool writes `wiki/`, `index.md`, `log.md` directly, and no tool edits `.proposals` — review is CLI + human.
 
 ## Resources
 
-`registry://wikis` (danh sách wiki), `wiki://<name>/index` (top-level TOC), `wiki://<name>/log` (lịch sử reverse-chronological). Đọc `index` trước khi search khi bạn chưa biết domain của wiki đó.
+`registry://wikis` (wiki list), `wiki://<name>/index` (top-level TOC), `wiki://<name>/log` (reverse-chronological history). Read `index` before searching when you don't know a wiki's domains yet.
 
-## An toàn
+## Safety
 
-- **Centralized server, nhiều wiki chung một process.** Kết quả luôn kèm `wiki` + `path`; trích dẫn phải ghi rõ wiki nguồn. Đừng để `wiki=""` khi mục đích chỉ ở một wiki — cross-wiki lẫn kết quả từ wiki cá nhân.
-- **Project wiki ≠ personal wiki**, nhưng cross-wiki search cho phép đọc cả hai → hữu ích, và phải phân biệt nguồn.
-- **Wiki có thể stale với code** → critical claim phải cross-check code trước khi kết luận.
-- **Contradiction** giữa wiki pages / giữa wiki và code → báo human, không tự resolve, không materialize thành "sự thật mới".
-- Không đọc `raw/` của wiki người khác làm bằng chứng cho repo này — raw là local cache, có thể bị user xoá; provenance thật là URL trong `sources:`.
+- **One centralized server, many wikis in one process.** Results always carry `wiki` + `path`; citations must name the source wiki. Don't use `wiki=""` when the question belongs to one wiki — cross-wiki mixes in personal-wiki results.
+- **Project wiki ≠ personal wiki**, but cross-wiki search reads both → useful, and sources must be distinguished.
+- **Wikis can go stale against code** → cross-check critical claims against code before concluding.
+- **Contradictions** between wiki pages / wiki and code → report to the human, never self-resolve, never materialize a "new truth".
+- Never cite another wiki's `raw/` as evidence for this repo — raw is local cache the user may delete; real provenance is the URL in `sources:`.

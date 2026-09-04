@@ -150,7 +150,8 @@ Bản chữ + sơ đồ động: [`docs/wiki-flow.html`](docs/wiki-flow.html).
 | **1 source chạm** | 10–15 page | 5–10 page (focused hơn) |
 | **Đặc thù** | từ vựng/ngữ pháp phải vào wiki | **mọi code path phải verify** trước khi ghi; tách intent ↔ observation |
 | **Skills** | `llm-wiki-{ingest,query,lint,reindex,review,consolidate,translate}` | cùng bộ **+ `llm-wiki-research` ở root repo** |
-| **MCP** | auto-install (centralized) | auto-install (centralized), tuỳ chọn `.mcp.json` ở root |
+| **MCP** | ghi vào chính wiki (`.mcp.json` / `opencode.jsonc`, commit được) | ghi vào root repo (`.mcp.json` / `opencode.jsonc`, commit được) |
+| **Code navigation** | — | khuyến nghị user tự cài plugin codegraph ở root repo (agent tự dùng khi thấy) |
 
 Hai biến thể **dùng chung tên skill** — khác nhau ở `[wiki].profile`, không ở bộ skill.
 MCP là centralized (`llm-wiki-base-mcp`): một server entry trên máy, đọc `registry.toml`
@@ -217,7 +218,6 @@ llm-wiki init                                     # wizard tương tác
 # Personal
 llm-wiki init personal --name "My Knowledge" --lang vi
 llm-wiki init personal -c claude -c commandcode   # client MCP (lặp lại được)
-llm-wiki init personal --mcp-scope project        # .mcp.json ở repo thay vì config cá nhân
 llm-wiki init personal --no-mcp                   # bỏ qua MCP
 llm-wiki init personal --no-register              # không ghi registry.toml (test/script)
 llm-wiki init personal --skills-target claude     # + symlink .claude/skills/
@@ -227,15 +227,15 @@ llm-wiki init personal --no-skills                # bỏ cài skill
 llm-wiki init project -c claude -c opencode
 llm-wiki init project --wiki-dir project-wiki     # tên subfolder chứa wiki
 llm-wiki init project --lang vi
-llm-wiki init project --mcp-scope project         # .mcp.json tại root repo (commit được)
 llm-wiki init project --server-name my-wiki-mcp   # đổi tên centralized server
 llm-wiki init project --no-register               # tránh làm bẩn registry khi test
 ```
 
-Client chấp nhận: `claude`, `opencode`, `zed`, `commandcode`. `--mcp-scope project` chỉ có
-tác dụng với `claude`/`commandcode` (file `<root>/.mcp.json`, key `mcpServers`);
-opencode/zed chỉ có user scope. Init **in ra đường dẫn file vừa ghi + key + scope** để bạn
-biết chính xác nó sửa gì.
+Client chấp nhận: `claude`, `opencode`, `zed`, `commandcode`. Init ghi MCP entry
+(`llm-wiki-base-mcp`) vào **file MCP per-project/personal wiki** (`.mcp.json` cho
+claude/commandcode, `opencode.jsonc` cho opencode — nằm trong chính wiki/repo, commit
+vào VCS được). Client chưa có file project-scope (vd `zed`) thì init báo bỏ qua.
+Init **in ra đường dẫn file vừa ghi + key** để bạn biết chính xác nó sửa gì.
 
 ### Wiki management (registry)
 
@@ -514,14 +514,19 @@ Resources: `registry://wikis`, `wiki://<name>/index`, `wiki://<name>/log`.
 Rerank **không phải MCP tool** — đó là bước LLM trong skill `llm-wiki-query` /
 `llm-wiki-research`.
 
-**Cài MCP cho client** (`llm-wiki init -c …`):
+**Cài MCP cho client** (`llm-wiki init -c …`) — luôn ghi vào file MCP
+per-project/personal wiki (commit vào VCS được, cả team dùng chung):
 
-| client | user scope | project scope | key |
-|---|---|---|---|
-| `claude` | `<AppSupport>/claude/mcp_servers.json` (fallback `~/.claude/`) | `<root>/.mcp.json` | `mcpServers` |
-| `commandcode` | `~/.commandcode/mcp.json` | `<root>/.mcp.json` | `mcpServers` |
-| `opencode` | `<AppSupport>/opencode/opencode.json` (fallback `~/.opencode/`) | không có | `mcp` |
-| `zed` | `<AppSupport>/Zed/settings.json` (fallback `~/.zed/`) | không có | `context_servers` |
+| client | file (trong wiki/repo) | key |
+|---|---|---|
+| `claude` | `<root>/.mcp.json` | `mcpServers` |
+| `commandcode` | `<root>/.mcp.json` | `mcpServers` |
+| `opencode` | `<root>/opencode.jsonc` | `mcp` |
+| `zed` | chưa có file project-scope → init báo bỏ qua | `context_servers` |
+
+Entry trỏ vào `["llm-wiki", "serve", "--mcp"]` (như `codegraph serve --mcp`) —
+`llm-wiki` phải có trên PATH để agent launch được server
+(`sudo ln -s "$(pwd)/.venv/bin/llm-wiki" /usr/local/bin/llm-wiki`).
 
 Khởi động lại AI tool sau khi init — process MCP cũ giữ `registry.toml` trong memory.
 

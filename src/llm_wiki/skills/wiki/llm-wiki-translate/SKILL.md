@@ -1,35 +1,35 @@
 ---
 name: llm-wiki-translate
-description: Translate 1 hoặc nhiều wiki page sang target language đã setup. Dùng LLM của AI tool đang chạy (Claude Code → Claude, OpenCode → provider). Bản dịch là file song song <slug>.<lang>.md, KHÔNG vào DB/RAG. Dùng khi user bảo "dịch page X sang tiếng Việt" hoặc sau ingest có target lang enabled.
+description: Translate 1 or more wiki pages into configured target languages. Uses the running AI tool's LLM (Claude Code → Claude, OpenCode → provider). Translations are parallel <slug>.<lang>.md files, excluded from DB/RAG. Use when the user says "translate page X to Vietnamese" or after ingest with target langs enabled.
 ---
 
 # llm-wiki Translate
 
-Wiki song ngữ: mỗi source page `wiki/<domain>/<kind>/<slug>.md` có thể có bản dịch song song `wiki/<domain>/<kind>/<slug>.<lang>.md`. Bản dịch:
-- Cùng frontmatter keys với source (`title`, `domain`, `kind`, `sources`, `updated`, `status`).
-- Body dịch 100% tương đương — không thêm, không bớt, không paraphrase.
-- **KHÔNG vào DB/RAG** (skip rule `*.lang.md` ở `tools/{ingest,reindex,watch}.py` + `rag/index.py`).
+Bilingual wikis: each source page `wiki/<domain>/<kind>/<slug>.md` may have a parallel translation `wiki/<domain>/<kind>/<slug>.<lang>.md`. Translations:
+- Same frontmatter keys as the source (`title`, `domain`, `kind`, `sources`, `updated`, `status`).
+- Body 100% equivalent — no additions, no omissions, no paraphrasing.
+- **Excluded from DB/RAG** (skip rule `*.lang.md` in `tools/{ingest,reindex,watch}.py` + `rag/index.py`).
 
 ## LLM provider
 
-**Dùng LLM của AI tool đang chạy** — KHÔNG gọi API riêng:
-- Claude Code → Claude (claude-sonnet-4-5 hoặc model hiện tại của session).
-- OpenCode → provider đang config trong `opencode.json`.
-- Zed → provider đang config.
+**Use the running AI tool's LLM** — NEVER call a separate API:
+- Claude Code → Claude (claude-sonnet-4-5 or the session's current model).
+- OpenCode → the provider configured in `opencode.json`.
+- Zed → the configured provider.
 
-Env `LLM_WIKI_TRANSLATE_API_KEY` / `LLM_WIKI_TRANSLATE_BASE_URL` / `LLM_WIKI_TRANSLATE_MODEL` là **OPTIONAL bypass** — chỉ dùng nếu user muốn gọi OpenAI API riêng thay vì AI tool LLM. Mặc định bỏ qua.
+Env `LLM_WIKI_TRANSLATE_API_KEY` / `LLM_WIKI_TRANSLATE_BASE_URL` / `LLM_WIKI_TRANSLATE_MODEL` is an **OPTIONAL bypass** — only if the user wants a dedicated OpenAI API call instead of the AI tool LLM. Ignore by default.
 
-## Khi nào dùng
+## When
 
-- User bảo "dịch trang X sang tiếng N".
-- Sau khi ingest 1 source mới, nếu `.llm-wiki.toml` có `[translate].enabled = true` → ingest skill tự invoke skill này cho mỗi target lang.
-- Re-translate khi source update: chạy `llm-wiki translate check --lang <code>` để phát hiện drift, rồi gọi skill này lại cho các file mismatch.
+- The user says "translate page X to language Y".
+- After ingesting a new source, if `.llm-wiki.toml` has `[translate].enabled = true` → the ingest skill auto-invokes this skill per target lang.
+- Re-translate when the source updates: run `llm-wiki translate check --lang <code>` to detect drift, then re-invoke this skill for mismatched files.
 
 ## Workflow
 
-### 1. Xác định target langs
+### 1. Determine target langs
 
-Đọc `.llm-wiki.toml` ở wiki root:
+Read `.llm-wiki.toml` at the wiki root:
 
 ```toml
 [translate]
@@ -37,15 +37,15 @@ enabled = true
 langs = ["vi", "ja"]
 ```
 
-Nếu user request lang cụ thể → dùng lang đó, ignore config. Nếu không có target langs trong config VÀ user không chỉ định → hỏi user.
+An explicitly requested lang wins → use it, ignore config. No target langs in config AND none requested → ask the user.
 
-### 2. Với mỗi (source page, target lang) cần dịch
+### 2. Per (source page, target lang) to translate
 
-**Bước a**: Đọc source page `wiki/<domain>/<kind>/<slug>.md`.
+**Step a**: Read the source page `wiki/<domain>/<kind>/<slug>.md`.
 
-**Bước b**: Tách frontmatter (giữa 2 line `---`) + body.
+**Step b**: Split frontmatter (between the two `---` lines) + body.
 
-**Bước c**: Gọi LLM của AI tool hiện tại để dịch body. Prompt chuẩn:
+**Step c**: Have the current AI tool's LLM translate the body. Standard prompt:
 
 ```
 Translate the following markdown body to language code '<lang>'.
@@ -59,46 +59,46 @@ Output ONLY the translated body, no frontmatter, no commentary.
 ---
 ```
 
-**Bước d**: Ghép lại với frontmatter gốc (verbatim — bản dịch có CÙNG `sources`, `kind`, `updated` để provenance intact). Output: file hoàn chỉnh.
+**Step d**: Rejoin with the original frontmatter verbatim (translations share `sources`, `kind`, `updated` so provenance stays intact). Output: the complete file.
 
-**Bước e**: Ghi file `wiki/<domain>/<kind>/<slug>.<lang>.md`.
+**Step e**: Write `wiki/<domain>/<kind>/<slug>.<lang>.md`.
 
-**Bước f** (verify nhanh): kiểm tra heading count khớp source. Nếu lệch → retry 1 lần với prompt stricter: "Your previous translation added/removed headings. Try again, output EXACTLY the same heading structure as input."
+**Step f** (quick verify): check heading counts match the source. Mismatch → retry once with a stricter prompt: "Your previous translation added/removed headings. Try again, output EXACTLY the same heading structure as input."
 
-### 3. Sau khi dịch xong tất cả
+### 3. After all translations
 
-Chạy:
+Run:
 
 ```bash
 llm-wiki translate check --lang <code>
 ```
 
-Nếu mismatch → flag cho user, không tự fix. Lý do mismatch phổ biến: LLM paraphrase, LLM thêm/bớt heading, source vừa update sau khi dịch.
+On mismatch → flag to the user, don't self-fix. Common causes: LLM paraphrase, LLM added/dropped headings, source updated after translating.
 
 ## Ingest integration
 
-Khi ingest skill viết 1 source mới, nếu `.llm-wiki.toml` có `[translate].enabled = true`:
-1. Ingest viết source EN → `wiki/<domain>/source/<slug>.md` (như cũ).
-2. Với mỗi lang trong `langs`: invoke workflow trên để tạo `<slug>.<lang>.md`.
-3. Sau ingest xong, reindex — bản dịch tự skip khỏi DB.
+When the ingest skill writes a new source and `.llm-wiki.toml` has `[translate].enabled = true`:
+1. Ingest writes the source (EN) → `wiki/<domain>/source/<slug>.md` (as usual).
+2. Per lang in `langs`: invoke the workflow above to create `<slug>.<lang>.md`.
+3. After ingest, reindex — translations auto-skip the DB.
 
-**Cost note**: ingest N sources × M langs = N×M LLM calls. Cảnh báo user nếu:
-- `len(langs) > 5` → "5+ target langs, tốn token. Confirm continue?"
-- `N sources > 20` → "20+ sources, suggest ingest theo batch."
+**Cost note**: ingesting N sources × M langs = N×M LLM calls. Warn the user when:
+- `len(langs) > 5` → "5+ target langs, token-heavy. Confirm continue?"
+- `N sources > 20` → "20+ sources, suggest ingesting in batches."
 
 ## Constraints
 
-- **Không dịch code block, URL, technical term** (class name, function name, package name, version number, command flag, env var).
-- **Không paraphrase** — chỉ dịch text tự nhiên. Markdown structure phải preserved 100%.
-- **Không thêm ý kiến** — nếu source ngắn gọn, bản dịch cũng ngắn gọn tương đương.
-- **Frontmatter verbatim** — `sources` (provenance), `updated`, `status` KHÔNG đổi.
-- **Heading structure preserved** — số heading + levels + text phải khớp source (check bằng `llm-wiki translate check`).
-- **Wikilinks preserved** — `[[wiki/<domain>/...]]` giữ nguyên path, KHÔNG dịch alias text thành localized version (để Obsidian resolve đúng path).
-- **Code blocks** — giữ nguyên 100% (không dịch comments trong code).
+- **Don't translate code blocks, URLs, technical terms** (class names, function names, package names, version numbers, command flags, env vars).
+- **Don't paraphrase** — translate natural text only. Markdown structure preserved 100%.
+- **Don't editorialize** — a terse source gets an equally terse translation.
+- **Frontmatter verbatim** — `sources` (provenance), `updated`, `status` do NOT change.
+- **Heading structure preserved** — heading count + levels + text must match the source (verified by `llm-wiki translate check`).
+- **Wikilinks preserved** — `[[wiki/<domain>/...]]` keeps its path; do NOT localize alias text (so Obsidian resolves the path correctly).
+- **Code blocks** — kept 100% (don't even translate code comments).
 
-## An toàn
+## Safety
 
-- Bản dịch là file parallel, không sửa source.
-- Nếu LLM trả output malformed (thiếu markdown, thêm preamble/suffix) → retry 1 lần với prompt stricter. Nếu vẫn fail → flag cho user, skip file đó, KHÔNG ghi file rỗng.
-- Nếu user không setup target langs (`enabled = false` hoặc file không tồn tại) VÀ không chỉ định lang trong request → KHÔNG dịch, KHÔNG hỏi thêm (im lặng skip). Trừ khi user explicit "dịch sang tiếng X".
-- Cross-wiki contamination: nếu đang ở project wiki khác (multi-project), check `<wiki-root>/.llm-wiki.toml` của project hiện tại, KHÔNG dùng config từ project khác.
+- Translations are parallel files; never modify the source.
+- Malformed LLM output (missing markdown, added preamble/suffix) → retry once with a stricter prompt. Still failing → flag to the user, skip that file, NEVER write an empty file.
+- No target langs configured (`enabled = false` or file missing) AND none requested → do NOT translate, do NOT ask further (skip silently). Unless the user explicitly says "translate to language X".
+- Cross-wiki contamination: in a different project wiki (multi-project), check the *current* `<wiki-root>/.llm-wiki.toml`, NEVER another project's config.

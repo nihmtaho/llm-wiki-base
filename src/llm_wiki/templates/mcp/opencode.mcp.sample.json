@@ -3,15 +3,8 @@
   "mcp": {
     "llm-wiki-base-mcp": {
       "type": "local",
-      "command": ["python3", "tools/mcp_base_server.py"],
-      "cwd": ".",
-      "enabled": true,
-      "environment": {
-        "LLM_WIKI_BASE_DIR": "/Users/<you>/.llm-wiki-base",
-        "WIKI_EMBED_MODEL": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-        "WIKI_BM25_WEIGHT": "0.5",
-        "WIKI_VEC_WEIGHT": "0.5"
-      }
+      "command": ["llm-wiki", "serve", "--mcp"],
+      "enabled": true
     }
   }
 }

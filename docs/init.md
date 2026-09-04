@@ -25,20 +25,21 @@ mkdir my-wiki && cd my-wiki
 llm-wiki init personal
 ```
 
-Lệnh này tạo data-only trong cwd + cài MCP mặc định:
+Lệnh này tạo data-only trong cwd + cài MCP vào chính wiki này:
 - `raw/inbox/`, `raw/`, `wiki/.proposals/`, `rag/.rag_index/`
 - `wiki/index.md`, `wiki/log.md` (skeleton)
-- `_schema.md`, `AGENTS.md`, `CLAUDE.md` (agent configs)
+- `AGENTS.md`, `_schema.md` (agent configs ở root) + `.claude/CLAUDE.md` (chỉ tag `@AGENTS.md`)
 - `.gitignore`, `.env` (point to global base)
 - `.llm-wiki.toml` (behavior config) + `eval/golden.toml` (query vàng — thay bằng query thật)
 - `.agents/skills/` — 7 skill wiki-scoped + `llm-wiki-research` (personal wiki = 1 folder
   nên 2 scope trùng nhau), kèm symlink cho client không đọc chuẩn Agent Skills
 - Đặt `[wiki].profile = personal` (+ `[wiki].lang` nếu truyền `--lang`)
 - Đăng ký wiki vào `~/.llm-wiki-base/registry.toml` (có `name` + `id` UUID)
-- Cài centralized MCP config (`llm-wiki-base-mcp`) cho client chỉ định (default: claude)
+- Cài MCP entry (`llm-wiki-base-mcp`) vào file MCP per-project/personal wiki
+  (`.mcp.json` cho claude/commandcode, `opencode.jsonc` cho opencode — commit vào VCS được)
 
 Cờ đáng chú ý: `-c/--client` (claude | opencode | zed | commandcode, lặp lại được),
-`--mcp-scope user|project`, `--no-mcp`, `--no-register` (test — không ghi registry thật),
+`--no-mcp`, `--no-register` (test — không ghi registry thật),
 `--skills-target universal|claude|both|skip`, `--no-skills`, `--lang`, `--force`.
 
 ### Project wiki (subdir trong project)
@@ -49,13 +50,14 @@ llm-wiki init project --root . --wiki-dir project-wiki -c claude -c commandcode
 ```
 
 Lệnh này:
-- Tạo `<root>/<wiki-dir>/` với data + agent configs + `.llm-wiki.toml`
+- Tạo `<root>/<wiki-dir>/` với data + agent configs (`AGENTS.md` ở root wiki,
+  `CLAUDE.md` ở `.claude/`) + `.llm-wiki.toml`
 - Đăng ký wiki vào `~/.llm-wiki-base/registry.toml` (`name` = tên wiki-dir; trùng tên
   với wiki khác path → tự thêm hậu tố `-<uuid8>`)
-- Cài **centralized** MCP config (`llm-wiki-base-mcp`) — 1 server entry cho toàn máy,
-  server đọc registry để tìm wikis. `--mcp-scope user` (mặc định) ghi vào file config
-  cá nhân của client; `--mcp-scope project` ghi `<root>/.mcp.json` (claude/commandcode)
-  để cả team dùng qua VCS. Init in ra **đường dẫn + key + scope** vừa ghi.
+- Cài **centralized** MCP entry (`llm-wiki-base-mcp`) vào file MCP per-project ở root
+  repo (`.mcp.json` cho claude/commandcode, `opencode.jsonc` cho opencode — commit vào
+  VCS để cả team dùng). Server đọc registry để tìm wikis. Init in ra **đường dẫn + key**
+  vừa ghi.
 - Cài skills **2 scope**: 7 skill wiki-scoped vào `<wiki-dir>/.agents/skills/`, còn
   `llm-wiki-research` vào `<root>/.agents/skills/` — nó cần thấy mọi wiki, không chỉ một
 - Đặt `[wiki].profile = codebase`
@@ -126,9 +128,10 @@ Daemon này poll `raw/inbox/` mỗi `WATCH_INGEST_SEC` (default 15s), ingest fil
 
 ## 6. Connect AI tool (centralized MCP)
 
-Sau `init`, MCP config (`llm-wiki-base-mcp`) đã được cài globally — cài **một lần**
-duy nhất trên máy (idempotent). Server đọc `~/.llm-wiki-base/registry.toml` để biết
-tất cả wikis.
+Sau `init`, MCP entry (`llm-wiki-base-mcp`) đã nằm trong file MCP per-project/personal
+wiki (`.mcp.json` / `opencode.jsonc`, commit vào VCS được). Entry chạy
+`llm-wiki serve --mcp` (stdio) — `llm-wiki` phải có trên PATH. Server đọc
+`~/.llm-wiki-base/registry.toml` để biết tất cả wikis.
 
 Reload client (Claude Code / OpenCode / Zed) để pick up server.
 
