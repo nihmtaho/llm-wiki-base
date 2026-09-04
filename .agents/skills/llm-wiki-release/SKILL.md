@@ -1,7 +1,7 @@
 ---
 # Claude Code (skill)
 name: llm-wiki-release
-description: 'Release llm-wiki-base theo SemVer + Conventional Commits + Keep a Changelog, chỉ dùng git và gh CLI'
+description: 'Release llm-wiki-base (stable + beta) theo SemVer + Conventional Commits + Keep a Changelog, chỉ dùng git và gh CLI'
 # Cursor (.mdc / rule)
 alwaysApply: false
 globs: ["pyproject.toml", "src/llm_wiki/__init__.py", "CHANGELOG.md"]
@@ -88,6 +88,29 @@ gh release create vX.Y.Z --title "vX.Y.Z" --notes "Tóm tắt từ CHANGELOG:
 - ..."
 gh release view vX.Y.Z   # verify
 ```
+
+## 7b. Beta release (prerelease, khi cần thử nghiệm trước stable)
+
+Đánh số SemVer prerelease `X.Y.Z-beta.N` (`beta.1`, `beta.2`, ... cho cùng target stable; precedence thấp hơn stable nên không bao giờ thành `latest`).
+
+```bash
+NEW=X.Y.ZbN   # file version dùng dạng PEP 440 cho pip-safe (vd 0.2.0b1)
+# bump 2 file version như bước 2, CHANGELOG ghi mục ## [X.Y.Z-beta.N]
+git add pyproject.toml src/llm_wiki/__init__.py CHANGELOG.md
+git commit -m "chore(release): vX.Y.Z-beta.N"
+git tag -a vX.Y.Z-beta.N -m "vX.Y.Z-beta.N"
+git push origin main && git push origin vX.Y.Z-beta.N
+gh release create vX.Y.Z-beta.N --prerelease --title "vX.Y.Z-beta.N" --notes "Beta, cần thử:
+- ...
+- ..."
+gh release view vX.Y.Z-beta.N   # verify, phải hiện `Pre-release`
+```
+
+Lưu ý:
+
+- File version (`X.Y.ZbN`) và tag/release (`vX.Y.Z-beta.N`) khác dạng nhau là cố ý: pip chỉ hiểu PEP 440, GitHub chỉ nhận prerelease SemVer có gạch ngang.
+- `llm-wiki upgrade --to latest` bỏ qua beta theo thiết kế (chỉ match `vX.Y.Z` stable). Muốn thử beta: `git checkout vX.Y.Z-beta.N` (+ cài lại nếu không editable) rồi kiểm thủ công; `--to <beta>` hiện chưa hỗ trợ.
+- Lên stable: làm tiếp quy trình thường (bước 2–7) với `X.Y.Z`, CHANGELOG gộp mục beta vào mục stable. Không xóa beta release/tag sau khi stable ra (giữ lịch sử thử nghiệm).
 
 ## 8. Post-release
 
