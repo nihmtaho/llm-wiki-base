@@ -1156,6 +1156,108 @@ def doctor_cmd(
                    [f"[yellow]![/yellow] {m}" for m in warns] or ["Không có lỗi."])
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Upgrade (GitHub tags vX.Y.Z → toàn bộ wikis trong registry)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _upgrade_root_suffix(r: dict, dry_run: bool) -> str:
+    root = r.get("root")
+    if not root:
+        return ""
+    if dry_run:
+        return f" + root {root['path']} {root['old'] or '?'} → {root['new']} (codebase re-sync)"
+    backup = f", backup {root['backup']}" if root["backup"] else ""
+    return f" + root {root['path']} → {root['new']}{backup}"
+
+
+@app.command("upgrade")
+def upgrade_cmd(
+    to: str = typer.Option("latest", "--to", help="Tag đích (vX.Y.Z) hoặc 'latest'."),
+    wiki: str | None = typer.Option(None, "--wiki", help="Chỉ upgrade wiki này (name hoặc id)."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Chỉ hiện thay đổi, không chép."),
+) -> None:
+    """Upgrade skills + agent configs của wikis trong registry lên tag mới.
+
+    Wiki loại `project` còn được sync skill `codebase` ở project root.
+
+    Examples:
+        llm-wiki upgrade --dry-run
+        llm-wiki upgrade --to latest
+        llm-wiki upgrade --to v0.2.0 --wiki my-wiki
+    """
+    from llm_wiki import upgrade as _upgrade
+
+    core = _upgrade.find_core()
+    if core is None:
+        _ui.err_panel("Không tìm thấy checkout core (.git).",
+                      "Chạy trong repo llm-wiki-base hoặc cài core từ git.")
+        raise typer.Exit(2)
+    tag = _upgrade.resolve_target(core, to)
+    if tag is None:
+        _ui.err_panel(f"Không resolve được tag '{to}'.",
+                      f"git -C {core} fetch --tags origin (offline?), "
+                      "hoặc tag sai quy ước vX.Y.Z.")
+        raise typer.Exit(1)
+    if not dry_run and _upgrade.core_tag(core) != tag:
+        _ui.err_panel(f"Core không ở {tag} — file mới lấy từ core đang chạy.",
+                      f"git -C {core} fetch --tags && git -C {core} checkout {tag} "
+                      "(+ cài lại package nếu không dùng pip install -e .)")
+        raise typer.Exit(1)
+    result = _upgrade.upgrade_all(core, tag, wiki_name=wiki, dry_run=dry_run)
+    if result["unknown"]:
+        _ui.err_panel(f"Không thấy wiki '{wiki}' trong registry.", "llm-wiki wiki list")
+        raise typer.Exit(1)
+    if dry_run:
+        rows = []
+        for r in result["done"]:
+            changed = r["changed"]
+            if changed is None:
+                detail = "re-sync toàn bộ (chưa có VERSION)"
+            elif not changed:
+                detail = "đã ở tag này"
+            else:
+                detail = ", ".join(changed[:8]) + ("…" if len(changed) > 8 else "")
+            rows.append(f"[cyan]{r['name']}[/cyan] {r['old'] or '?'} → {tag}: "
+                        f"{detail}{_upgrade_root_suffix(r, True)}")
+        for name in result["missing"]:
+            rows.append(f"[yellow]![/yellow] {name}: path mất, bỏ qua")
+        _ui.done_panel(f"upgrade --dry-run → {tag}", rows or ["Không có wiki nào."])
+        return
+    rows = []
+    for r in result["done"]:
+        backup = f", backup {r['backup']}" if r["backup"] else ", không có gì để backup"
+        rows.append(f"[green]✓[/green] {r['name']} {r['old'] or '?'} → {tag}{backup}"
+                    f"{_upgrade_root_suffix(r, False)}")
+    for name in result["missing"]:
+        rows.append(f"[yellow]![/yellow] {name}: path mất, bỏ qua")
+    _ui.done_panel(f"upgrade → {tag}", rows or ["Không có wiki nào."])
+
+
+@app.command("status")
+def status_cmd() -> None:
+    """Core local/latest + VERSION từng wiki trong registry.
+
+    Examples:
+        llm-wiki status
+    """
+    from llm_wiki import registry, upgrade as _upgrade
+
+    core = _upgrade.find_core()
+    if core is None:
+        _ui.err_panel("Không tìm thấy checkout core (.git).",
+                      "Chạy trong repo llm-wiki-base hoặc cài core từ git.")
+        raise typer.Exit(2)
+    latest = _upgrade.latest_tag(core)
+    console.print(f"core: {core}")
+    console.print(f"core tag: {_upgrade.core_tag(core) or '?'} / latest: {latest or '?'}")
+    for w in registry.list_wikis():
+        path = Path(w.get("path", "")).expanduser()
+        ver = _upgrade.read_version(path) if path.is_dir() else None
+        flag = "" if ver == latest else "  [yellow](cũ)[/yellow]"
+        console.print(f"  [cyan]{w.get('name')}[/cyan]: {ver or '?'}{flag}")
+
+
 def main() -> None:
     """Guarded entry point: user errors already exited; unexpected ones get a panel."""
     try:
