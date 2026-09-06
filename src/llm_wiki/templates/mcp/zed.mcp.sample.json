@@ -1,8 +1,0 @@
-{
-  "context_servers": {
-    "llm-wiki-base-mcp": {
-      "command": "llm-wiki",
-      "args": ["serve", "--mcp"]
-    }
-  }
-}

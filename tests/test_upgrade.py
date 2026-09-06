@@ -1,10 +1,10 @@
-"""Tests cho `llm-wiki upgrade --to <tag|latest>` (GitHub tags vX.Y.Z)."""
+"""Tests cho `llm-wiki-base upgrade --to <tag|latest>` (GitHub tags vX.Y.Z)."""
 
 import subprocess
 from pathlib import Path
 
-from llm_wiki import upgrade as U
-from llm_wiki.cli import app
+from llm_wiki_base import upgrade as U
+from llm_wiki_base.cli import app
 
 
 def _git(dir: Path, *args: str) -> None:
@@ -85,7 +85,7 @@ def test_sync_agent_configs_overwrites(tmp_path):
 
 
 def test_upgrade_dry_run_cli(runner, isolated_env, tmp_path, monkeypatch):
-    from llm_wiki import registry
+    from llm_wiki_base import registry
 
     core = _fake_core(tmp_path, "v0.1.0")
     monkeypatch.setattr(U, "find_core", lambda: core)
@@ -98,7 +98,7 @@ def test_upgrade_dry_run_cli(runner, isolated_env, tmp_path, monkeypatch):
 
 
 def test_upgrade_apply_cli(runner, isolated_env, tmp_path, monkeypatch):
-    from llm_wiki import registry
+    from llm_wiki_base import registry
 
     core = _fake_core(tmp_path, "v0.1.0")
     monkeypatch.setattr(U, "find_core", lambda: core)
@@ -107,7 +107,7 @@ def test_upgrade_apply_cli(runner, isolated_env, tmp_path, monkeypatch):
     result = runner.invoke(app, ["upgrade", "--to", "v0.1.0"])
     assert result.exit_code == 0, result.output
     assert U.read_version(wiki) == "v0.1.0"
-    assert (wiki / ".llm-wiki" / "backups").is_dir()  # backup + overwrite
+    assert (wiki / ".llm-wiki-base" / "backups").is_dir()  # backup + overwrite
     assert (wiki / "AGENTS.md").read_text(encoding="utf-8") != "stale"
     assert (wiki / ".agents" / "skills").is_dir()  # install_skills đã chạy
 
@@ -120,7 +120,7 @@ def test_upgrade_unknown_wiki(runner, isolated_env, tmp_path, monkeypatch):
 
 
 def test_upgrade_core_not_on_tag(runner, isolated_env, tmp_path, monkeypatch):
-    from llm_wiki import registry
+    from llm_wiki_base import registry
 
     core = _fake_core(tmp_path, "v0.1.0")
     (core / "new.txt").write_text("new")  # commit mới sau tag → core lệch tag
@@ -138,7 +138,7 @@ def _fake_project(base: Path) -> tuple[Path, Path]:
     root = base / "proj"
     wiki = root / "wiki"
     (wiki / ".agents" / "skills").mkdir(parents=True)
-    research = root / ".agents" / "skills" / "llm-wiki-research"
+    research = root / ".agents" / "skills" / "llm-wiki-base-research"
     research.mkdir(parents=True)
     (research / "SKILL.md").write_text("stale-root", encoding="utf-8")
     return root, wiki
@@ -151,8 +151,8 @@ def test_find_project_root(tmp_path):
 
 
 def test_upgrade_project_root_apply(runner, isolated_env, tmp_path, monkeypatch):
-    from llm_wiki import registry
-    from llm_wiki._package_data import package_path
+    from llm_wiki_base import registry
+    from llm_wiki_base._package_data import package_path
 
     core = _fake_core(tmp_path, "v0.1.0")
     monkeypatch.setattr(U, "find_core", lambda: core)
@@ -161,16 +161,16 @@ def test_upgrade_project_root_apply(runner, isolated_env, tmp_path, monkeypatch)
     result = runner.invoke(app, ["upgrade", "--to", "v0.1.0"])
     assert result.exit_code == 0, result.output
     assert U.read_version(root) == "v0.1.0"  # root cũng được stamp
-    assert (root / ".llm-wiki" / "backups").is_dir()  # root có backup riêng
-    fresh = package_path("skills", "codebase", "llm-wiki-research",
+    assert (root / ".llm-wiki-base" / "backups").is_dir()  # root có backup riêng
+    fresh = package_path("skills", "codebase", "llm-wiki-base-research",
                          "SKILL.md").read_text(encoding="utf-8")
-    assert (root / ".agents" / "skills" / "llm-wiki-research" / "SKILL.md"
+    assert (root / ".agents" / "skills" / "llm-wiki-base-research" / "SKILL.md"
             ).read_text(encoding="utf-8") == fresh
     assert "root" in result.output
 
 
 def test_upgrade_project_without_root(runner, isolated_env, tmp_path, monkeypatch):
-    from llm_wiki import registry
+    from llm_wiki_base import registry
 
     core = _fake_core(tmp_path, "v0.1.0")
     monkeypatch.setattr(U, "find_core", lambda: core)
@@ -182,7 +182,7 @@ def test_upgrade_project_without_root(runner, isolated_env, tmp_path, monkeypatc
 
 
 def test_personal_ignores_ancestor_root(runner, isolated_env, tmp_path, monkeypatch):
-    from llm_wiki import registry
+    from llm_wiki_base import registry
 
     core = _fake_core(tmp_path, "v0.1.0")
     monkeypatch.setattr(U, "find_core", lambda: core)
@@ -191,5 +191,5 @@ def test_personal_ignores_ancestor_root(runner, isolated_env, tmp_path, monkeypa
     result = runner.invoke(app, ["upgrade", "--to", "v0.1.0"])
     assert result.exit_code == 0, result.output
     assert U.read_version(root) is None
-    assert (root / ".agents" / "skills" / "llm-wiki-research" / "SKILL.md"
+    assert (root / ".agents" / "skills" / "llm-wiki-base-research" / "SKILL.md"
             ).read_text(encoding="utf-8") == "stale-root"

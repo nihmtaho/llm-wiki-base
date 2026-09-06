@@ -5,11 +5,11 @@ import sys
 
 def _load_base_tools(tmp_path, monkeypatch):
     monkeypatch.setenv("WIKI_ROOT", str(tmp_path))
-    base_tools = os.path.join("src", "llm_wiki", "base_tools")
+    base_tools = os.path.join("src", "llm_wiki_base", "base_tools")
     monkeypatch.syspath_prepend(os.path.abspath(base_tools))
     for mod in [m for m in list(sys.modules) if m in (
             "db", "search", "chunking", "config_file", "embed", "paths",
-            "llm_wiki.paths", "llm_wiki.config_file")]:
+            "llm_wiki_base.paths", "llm_wiki_base.config_file")]:
         del sys.modules[mod]
     import db
     import search
@@ -42,13 +42,13 @@ def test_reserved_index_not_indexed(tmp_path, monkeypatch):
 
 def _load_module(tmp_path, monkeypatch, name, stub_rag=False):
     monkeypatch.setenv("WIKI_ROOT", str(tmp_path))
-    base_tools = os.path.join("src", "llm_wiki", "base_tools")
+    base_tools = os.path.join("src", "llm_wiki_base", "base_tools")
     monkeypatch.syspath_prepend(os.path.abspath(base_tools))
-    # paths phải purge cả bản package (llm_wiki.paths) — WIKI_ROOT chốt ở import-time,
+    # paths phải purge cả bản package (llm_wiki_base.paths) — WIKI_ROOT chốt ở import-time,
     # bản base_tools/paths.py chỉ re-export nó khi package cài được.
     for mod in [m for m in list(sys.modules) if m in (
             "db", "search", "chunking", "config_file", "embed", "paths",
-            "llm_wiki.paths", "llm_wiki.config_file",
+            "llm_wiki_base.paths", "llm_wiki_base.config_file",
             "reindex", "ingest", "index")]:
         del sys.modules[mod]
     if stub_rag:

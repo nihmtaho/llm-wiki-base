@@ -1,15 +1,15 @@
 # Tier 3 — Roadmap
 
 Nguồn: đánh giá `docs/human-ideas/my-idea/` (OKF v0.2 bundle). Tier 1 + Tier 2 đã áp
-(plan `~/.commandcode/plans/llm-wiki-tier1-tier2-implementation.md`). **Gói retrieval
-(§1–§3 dưới đây) đã áp ngày 2026-09-02** — plan `~/.commandcode/plans/llm-wiki-tier3-retrieval.md`,
+(plan `~/.commandcode/plans/llm-wiki-base-tier1-tier2-implementation.md`). **Gói retrieval
+(§1–§3 dưới đây) đã áp ngày 2026-09-02** — plan `~/.commandcode/plans/llm-wiki-base-tier3-retrieval.md`,
 chi tiết trong `docs/session/session-tier3-retrieval-2026-09-02.md`. Phần còn lại giữ
 để làm khi có tín hiệu cần thiết (scale lớn hơn, multi-agent, portability).
 
 ## ĐÃ LÀM (2026-09-02) — gói retrieval
 
 ### 1. Eval harness → điều kiện bật vector ✅
-- `llm-wiki eval` (`tools/eval.py`): P@k / R@k / MRR trên `eval/golden.toml` (query vàng, COMMIT).
+- `llm-wiki-base eval` (`tools/eval.py`): P@k / R@k / MRR trên `eval/golden.toml` (query vàng, COMMIT).
 - `--compare` chạy 3 profile: `tier1-weighted` (baseline) / `rrf-text` / `rrf+vector` + verdict.
 - `eval/results.json` (gitignored) append kèm fingerprint config → so sánh theo thời gian.
 - `zero_recall_queries` = wiki thiếu tài liệu (việc của ingest), không phải retriever dở.
@@ -41,8 +41,8 @@ chi tiết trong `docs/session/session-tier3-retrieval-2026-09-02.md`. Phần c�
 ### Gói skills + MCP + config + naming + proposals ✅ (cùng ngày, đợt 2)
 Nguồn: `docs/human-ideas/improve/tasks.md`. Chi tiết trong
 `docs/session/session-tier3-skills-mcp-config-2026-09-02.md`.
-- 13 skill personal/project → **8 skill `llm-wiki-*` profile-aware** (chế độ đọc
-  `[wiki].profile`); thêm `llm-wiki-reindex`; `research` tách khỏi `query` và cài ở
+- 13 skill personal/project → **8 skill `llm-wiki-base-*` profile-aware** (chế độ đọc
+  `[wiki].profile`); thêm `llm-wiki-base-reindex`; `research` tách khỏi `query` và cài ở
   **root codebase**; `plan` + `mcp` gộp vào `query`/`research`; `translate` giữ + sửa
   bug không bao giờ được cài cho project wiki.
 - Phân phối: `.agents/skills/` canonical + symlink cho claude/opencode (port
@@ -50,8 +50,8 @@ Nguồn: `docs/human-ideas/improve/tasks.md`. Chi tiết trong
 - MCP: thêm client `commandcode`, `--mcp-scope user|project`, in rõ path + key + scope.
 - Registry: `name` + `id` (UUID), trùng tên khác path → hậu tố `-<uuid8>`; `--no-register`.
 - `[wiki].profile`/`lang`, `[models]` (schema), `vector = true` mặc định mới.
-- `llm-wiki proposals list|show|apply|discard|new` + metadata target trong proposal.
-- `llm-wiki doctor` + error path thống nhất cho CLI wrapper.
+- `llm-wiki-base proposals list|show|apply|discard|new` + metadata target trong proposal.
+- `llm-wiki-base doctor` + error path thống nhất cho CLI wrapper.
 
 ---
 
@@ -102,21 +102,21 @@ Nguồn: `docs/human-ideas/improve/tasks.md`. Chi tiết trong
 
 - Export mode: rewrite `[[wiki/<domain>/x]]` → `[x](/wiki/<domain>/x.md)` cho consumer không hiểu
   wikilink (GitHub render, static site).
-- Command `llm-wiki export --out <dir>` — không đổi source.
+- Command `llm-wiki-base export --out <dir>` — không đổi source.
 
 ## 10. Migration tooling wiki cũ
 
 - Script migrate frontmatter page cũ: flat `sources` → dict form, thêm `generated`, `confidence` →
   `verified` mapping (`human-verified` → `verified.by = human`).
-- `llm-wiki migrate` — dry-run trước, chỉ chạy khi số page cũ đáng kể.
+- `llm-wiki-base migrate` — dry-run trước, chỉ chạy khi số page cũ đáng kể.
 
 ## 11. Headless ingest — `[models]` providers + LLM client thật
 
 - `tasks.md` đòi "config thêm providers cho wiki → ingest không cần mở agent tool".
   **Đã làm một nửa có chủ đích**: section `[models]` (`light`/`heavy`/`provider`/
   `api_key_env`) đã nằm trong config + template, nhưng Python **không đọc** nó và không
-  gọi LLM — `llm-wiki doctor` nói rõ điều đó.
-- Phần còn lại (client OpenAI-compatible/Anthropic để `llm-wiki ingest --headless` chạy
+  gọi LLM — `llm-wiki-base doctor` nói rõ điều đó.
+- Phần còn lại (client OpenAI-compatible/Anthropic để `llm-wiki-base ingest --headless` chạy
   từ cron/watch) **chưa làm**, và không nên làm vội: ingest thật là quy trình nhiều bước
   (plan concept đích, chống fork theo `status: planned`, tôn trọng pins, cập nhật
   index/log, distill-verify) — một lần call API không thay được skill + loop của agent.

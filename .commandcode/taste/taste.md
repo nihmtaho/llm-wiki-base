@@ -3,7 +3,7 @@
 - Prefers a centralized registry pattern: a single MCP server entry that aggregates multiple wiki instances registered by name+path in a central config, rather than spawning one server per wiki. Confidence: 0.85
 - Prefers TOML for configuration/registry files (e.g. a wiki name+path registry). Confidence: 0.8
 - Prefers auto-setup by default — features like MCP init should be enabled automatically when initializing a personal wiki, not exposed as an opt-in flag. Confidence: 0.8
-- Prefers a unified guided CLI: a single entry command (`llm-wiki init`) that walks through options interactively, rather than requiring separate subcommands/flows. Confidence: 0.85
+- Prefers a unified guided CLI: a single entry command (`llm-wiki-base init`) that walks through options interactively, rather than requiring separate subcommands/flows. Confidence: 0.85
 - Prefers strict human-scoped AI boundaries: AI tools should only research and contribute to a human-designated wiki; never auto-ingest a wiki ("AI proposes, human decides"). Confidence: 0.85
 - Prefers cross-scope discoverability with fallback: allow targeting a specific wiki scope but also support searching across related scopes including the personal wiki. Confidence: 0.75
 - Requires Python 3.10 compatibility as a hard floor: never use 3.11+-only stdlib (e.g. `tomllib`) without a `try/except ImportError` fallback to the backport (`tomli`), and declare the conditional dep (`tomli>=2; python_version < "3.11"`) in BOTH `pyproject.toml` and the base `requirements.txt` so the CLI venv and the global base venv stay consistent. Confidence: 0.8
