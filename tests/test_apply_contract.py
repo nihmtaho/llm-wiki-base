@@ -22,3 +22,42 @@ def test_explicit_target_wins():
     from llm_wiki.cli import parse_apply_output
     out = "RESULT {\"status\": \"applied\", \"target\": \"wiki/a.md\"}\n"
     assert parse_apply_output(out, "wiki/b.md") == "wiki/b.md"
+
+
+def _load_proposals(tmp_path, monkeypatch):
+    import os
+    import sys
+    monkeypatch.setenv("WIKI_ROOT", str(tmp_path))
+    monkeypatch.setenv("WIKI_DB", str(tmp_path / "wiki" / ".wiki.db"))
+    monkeypatch.syspath_prepend(os.path.abspath(os.path.join("src", "llm_wiki", "base_tools")))
+    for mod in [m for m in list(sys.modules)
+                if m in ("db", "search", "chunking", "config_file", "embed", "paths", "proposals")]:
+        del sys.modules[mod]
+    import proposals
+    return proposals
+
+
+def test_apply_emits_json_and_cli_roundtrips(tmp_path, monkeypatch, capsys):
+    """End-to-end: stage → apply → output chứa cả APPLIED + RESULT JSON hợp lệ,
+    và parser của CLI đọc lại đúng target thật trên đĩa."""
+    import json
+    from types import SimpleNamespace
+    proposals = _load_proposals(tmp_path, monkeypatch)
+    (tmp_path / "wiki").mkdir(parents=True, exist_ok=True)
+
+    body = "# x\n\n" + "concept content " * 20
+    prop = proposals.stage(tmp_path, "wiki/tech/concept/x.md", body, by="t", note="")
+    rc = proposals.cmd_apply(SimpleNamespace(name=prop.name, target=None))
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    dest = tmp_path / "wiki" / "tech" / "concept" / "x.md"
+    assert dest.read_text(encoding="utf-8") == body
+    assert not prop.exists()
+    assert "APPLIED\twiki/tech/concept/x.md" in out
+    result_line = next(l for l in out.splitlines() if l.startswith("RESULT "))
+    payload = json.loads(result_line[len("RESULT "):])
+    assert payload == {"status": "applied", "target": "wiki/tech/concept/x.md"}
+
+    from llm_wiki.cli import parse_apply_output
+    assert parse_apply_output(out, None) == "wiki/tech/concept/x.md"
