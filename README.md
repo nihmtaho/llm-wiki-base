@@ -47,7 +47,7 @@ llm-wiki base install
 # → ~/.llm-wiki-base/{tools/,rag/,scripts/,.venv/,registry.toml}
 
 # 3. Create a wiki
-mkdir my-wiki && cd my-wiki && llm-wiki init   # interactive wizard
+mkdir my-wiki && cd my-wiki && llm-wiki setup   # interactive wizard
 ```
 
 ### Making `llm-wiki` available globally
@@ -89,7 +89,7 @@ llm-wiki wiki ingest raw/inbox/note.md   # (A) deterministic: file INTO search D
 llm-wiki wiki reindex && llm-wiki check lint && llm-wiki setup doctor
 ```
 
-`llm-wiki doctor` tells you which commands the CLI handles alone and which
+`llm-wiki setup doctor` tells you which commands the CLI handles alone and which
 require an AI tool. Full command reference: [`docs/cli.md`](docs/cli.md).
 
 ## How it works
@@ -101,10 +101,10 @@ A document's journey — 9 steps, 3 handoffs of "who is working":
    No shortcut writes straight into `wiki/`.
 2. **Ingest = skill + LLM.** Reads the whole source, 3–5 takeaways, discusses with
    you, picks a domain, then writes `wiki/<domain>/{source,entity,concept}/*.md`
-   with provenance. CLI `llm-wiki ingest` does **not** do this — it only indexes.
+    with provenance. CLI `llm-wiki wiki ingest` does **not** do this — it only indexes.
 3. **Catalog.** `index.md` + `log.md` are re-derivable so the agent writes them;
    every other assertion stays out. `verified` left blank.
-4. **Derived index.** `llm-wiki reindex` by content-hash → `pages_fts`,
+4. **Derived index.** `llm-wiki wiki reindex` by content-hash → `pages_fts`,
    `chunks_fts`, and vector chunks (when `vector = true`).
 5. **Question → candidate pool.** Skill calls MCP `wiki_search` with
    `top_k = 2 × top_n_final`.
@@ -113,10 +113,10 @@ A document's journey — 9 steps, 3 handoffs of "who is working":
 8. **Cited answer** + unverified/stale flags. Good synthesis gets filed back as a
    new page so the wiki compounds.
 9. **Human gate.** To change/claim: `wiki_propose_edit` → `.proposals/` →
-   `llm-wiki proposals apply --by <you>` → `verify`.
+    `llm-wiki review apply --by <you>` → `verify`.
 
 Two reverse flows keep the wiki from rotting: `llm-wiki watch` loops 1→4 on new
-files; `llm-wiki lint` (deterministic) then skill `llm-wiki-review` (semantic)
+files; `llm-wiki check lint` (deterministic) then skill `llm-wiki-review` (semantic)
 push gaps into `wiki/alerts/`.
 
 **Two-layer architecture:**
@@ -131,7 +131,7 @@ push gaps into `wiki/alerts/`.
 |---|---|---|---|
 | `wiki/*.md` | source of truth, with provenance | skill + LLM, human reviews | no |
 | `raw/` | cache of origins (URLs in `sources:` are the real provenance) | you drop / `wiki_submit` | **yes** |
-| `.wiki.db`, `rag/.rag_index/` | derived indexes | `llm-wiki reindex` | **yes**, rebuildable |
+| `.wiki.db`, `rag/.rag_index/` | derived indexes | `llm-wiki wiki reindex` | **yes**, rebuildable |
 
 ## Wiki flavors
 
@@ -166,7 +166,7 @@ Full reference (init flags, per-wiki commands, proposals, translation, doctor):
 ## Skills
 
 8 skills, **no personal/project name split** — mode comes from `[wiki].profile`.
-Installed by `llm-wiki init` in two scopes:
+Installed by `llm-wiki setup` in two scopes:
 
 | Skill | Scope | Role |
 |---|---|---|
@@ -195,7 +195,7 @@ Behavior config per wiki (`.llm-wiki.toml`, **committed**). Precedence:
 (fusion, channels, budgets), `[retrieval.weights]`, `[models]` (skill-layer LLM
 contract — Python never calls an LLM), `[eval]`, `[review]`, `[lifecycle]`,
 `[lint]`, `[translate]`. Changing `embed_model` / `chunk_tokens` / `vector` /
-`fusion` requires `llm-wiki reindex --full`. Full annotated example:
+`fusion` requires `llm-wiki wiki reindex --full`. Full annotated example:
 [`docs/cli.md`](docs/cli.md) (config section).
 
 ## Retrieval & eval
@@ -210,7 +210,7 @@ alarms instead of silent degradation, and a golden-query eval harness
 
 - **Trust tiers.** Every page has `generated: {by, at}`; optional
   `verified: {by, at}`. AI never sets `verified` —
-  `llm-wiki verify <page> --by <human-id>`. Retrieval still serves unverified
+  `llm-wiki check verify <page> --by <human-id>`. Retrieval still serves unverified
   pages, but skills must flag them.
 - **Proposals = the write gate.** AI reads freely; asserting facts requires a
   human signature: `proposals new/list/show/apply/discard`. MCP
@@ -273,7 +273,7 @@ before any commit/PR.
   (init copy source), `src/llm_wiki/templates/`.
 - ⚠️ `src/llm_wiki/config_file.py` and `src/llm_wiki/base_tools/config_file.py`
   must match key-for-key (the latter is the fallback when tools run in the base
-  venv without the package). `llm-wiki doctor` diffs `tools/` against the
+  venv without the package). `llm-wiki setup doctor` diffs `tools/` against the
   package and reports drift.
 - Detailed docs: agent schema
   ([`_schema.md`](src/llm_wiki/templates/agents/_schema.md)) · wiki runbook
