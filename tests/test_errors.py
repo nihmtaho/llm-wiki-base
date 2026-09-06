@@ -1,6 +1,6 @@
 from typer.testing import CliRunner
 
-from llm_wiki.cli import app
+from llm_wiki_base.cli import app
 
 
 def test_missing_wiki_error_has_fix(runner: CliRunner, isolated_env):

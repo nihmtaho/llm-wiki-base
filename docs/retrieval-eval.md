@@ -27,10 +27,10 @@ channel disables itself **and says so** (`reindex --check` reports "not built",
 while a channel is secretly dead are a bug, not a result.
 
 ```bash
-llm-wiki eval --init          # create eval/golden.toml (that's data — COMMIT it)
-llm-wiki eval                 # P@k / R@k / MRR under current config
-llm-wiki eval --compare       # tier1-weighted / rrf-text / rrf+vector + verdict
-llm-wiki eval --compare -v    # per-query numbers
+llm-wiki-base eval --init          # create eval/golden.toml (that's data — COMMIT it)
+llm-wiki-base eval                 # P@k / R@k / MRR under current config
+llm-wiki-base eval --compare       # tier1-weighted / rrf-text / rrf+vector + verdict
+llm-wiki-base eval --compare -v    # per-query numbers
 ```
 
 `eval/golden.toml` holds **real** queries + acceptable concept lists; eval warns

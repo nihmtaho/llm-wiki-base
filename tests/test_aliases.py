@@ -1,7 +1,7 @@
 from typer.testing import CliRunner
 
-from llm_wiki.aliases import OLD_TO_NEW
-from llm_wiki.cli import app
+from llm_wiki_base.aliases import OLD_TO_NEW
+from llm_wiki_base.cli import app
 
 EXPECTED = [
     (("init", "personal"), ("setup", "personal")),

@@ -1,11 +1,11 @@
 # Init Guide
 
-Cách dựng 1 wiki mới từ `llm-wiki` (đã cài qua `pip install llm-wiki`).
+Cách dựng 1 wiki mới từ `llm-wiki-base` (đã cài qua `pip install llm-wiki-base`).
 
 ## 1. Cài global base (1 lần per máy)
 
 ```bash
-llm-wiki base install
+llm-wiki-base base install
 ```
 
 Lệnh này:
@@ -22,7 +22,7 @@ Idempotent — chạy lại để sync code mới nhất.
 
 ```bash
 mkdir my-wiki && cd my-wiki
-llm-wiki init personal
+llm-wiki-base init personal
 ```
 
 Lệnh này tạo data-only trong cwd + cài MCP vào chính wiki này:
@@ -30,8 +30,8 @@ Lệnh này tạo data-only trong cwd + cài MCP vào chính wiki này:
 - `wiki/index.md`, `wiki/log.md` (skeleton)
 - `AGENTS.md`, `_schema.md` (agent configs ở root) + `.claude/CLAUDE.md` (chỉ tag `@AGENTS.md`)
 - `.gitignore`, `.env` (point to global base)
-- `.llm-wiki.toml` (behavior config) + `eval/golden.toml` (query vàng — thay bằng query thật)
-- `.agents/skills/` — 7 skill wiki-scoped + `llm-wiki-research` (personal wiki = 1 folder
+- `.llm-wiki-base.toml` (behavior config) + `eval/golden.toml` (query vàng — thay bằng query thật)
+- `.agents/skills/` — 7 skill wiki-scoped + `llm-wiki-base-research` (personal wiki = 1 folder
   nên 2 scope trùng nhau), kèm symlink cho client không đọc chuẩn Agent Skills
 - Đặt `[wiki].profile = personal` (+ `[wiki].lang` nếu truyền `--lang`)
 - Đăng ký wiki vào `~/.llm-wiki-base/registry.toml` (có `name` + `id` UUID)
@@ -46,12 +46,12 @@ Cờ đáng chú ý: `-c/--client` (claude | opencode | zed | commandcode, lặp
 
 ```bash
 cd my-project
-llm-wiki init project --root . --wiki-dir project-wiki -c claude -c commandcode
+llm-wiki-base init project --root . --wiki-dir project-wiki -c claude -c commandcode
 ```
 
 Lệnh này:
 - Tạo `<root>/<wiki-dir>/` với data + agent configs (`AGENTS.md` ở root wiki,
-  `CLAUDE.md` ở `.claude/`) + `.llm-wiki.toml`
+  `CLAUDE.md` ở `.claude/`) + `.llm-wiki-base.toml`
 - Đăng ký wiki vào `~/.llm-wiki-base/registry.toml` (`name` = tên wiki-dir; trùng tên
   với wiki khác path → tự thêm hậu tố `-<uuid8>`)
 - Cài **centralized** MCP entry (`llm-wiki-base-mcp`) vào file MCP per-project ở root
@@ -59,12 +59,12 @@ Lệnh này:
   VCS để cả team dùng). Server đọc registry để tìm wikis. Init in ra **đường dẫn + key**
   vừa ghi.
 - Cài skills **2 scope**: 7 skill wiki-scoped vào `<wiki-dir>/.agents/skills/`, còn
-  `llm-wiki-research` vào `<root>/.agents/skills/` — nó cần thấy mọi wiki, không chỉ một
+  `llm-wiki-base-research` vào `<root>/.agents/skills/` — nó cần thấy mọi wiki, không chỉ một
 - Đặt `[wiki].profile = codebase`
 
 Mỗi wiki mới chỉ cần đăng ký vào registry — MCP config không cần cài lại (idempotent).
 Skill đã cài là bản copy → nâng cấp package xong phải chạy lại `init` trên từng wiki
-(`init` không ghi đè `.llm-wiki.toml` đã tồn tại, chỉ vá thiếu `[wiki]`).
+(`init` không ghi đè `.llm-wiki-base.toml` đã tồn tại, chỉ vá thiếu `[wiki]`).
 
 ## 3. (Optional) override env
 
@@ -75,7 +75,7 @@ Edit `.env` đã được init:
 WIKI_EMBED_MODEL=your-model-name
 WIKI_EMBED_DIM=768  # phải khớp model
 
-# Tune retrieval (ưu tiên cao hơn .llm-wiki.toml)
+# Tune retrieval (ưu tiên cao hơn .llm-wiki-base.toml)
 WIKI_FUSION=weighted      # quay lại hành vi cũ (default: rrf)
 WIKI_CHUNK_BM25=0         # tắt kênh BM25 chunk-level
 WIKI_BM25_WEIGHT=0.4      # chỉ có ý nghĩa khi fusion=weighted
@@ -85,9 +85,9 @@ WIKI_VEC_WEIGHT=0.6
 WATCH_INGEST_SEC=10
 ```
 
-Hầu hết tuning nên nằm trong **`.llm-wiki.toml`** (`[retrieval]`, `[retrieval.weights]`,
-`[eval]`) thay vì env — file đó commit vào wiki repo, `llm-wiki config show` cho thấy
-giá trị nào đến từ đâu. Đổi embedding model → phải `llm-wiki reindex --full`.
+Hầu hết tuning nên nằm trong **`.llm-wiki-base.toml`** (`[retrieval]`, `[retrieval.weights]`,
+`[eval]`) thay vì env — file đó commit vào wiki repo, `llm-wiki-base config show` cho thấy
+giá trị nào đến từ đâu. Đổi embedding model → phải `llm-wiki-base reindex --full`.
 
 ## 4. Thêm nguồn đầu tiên
 
@@ -130,7 +130,7 @@ Daemon này poll `raw/inbox/` mỗi `WATCH_INGEST_SEC` (default 15s), ingest fil
 
 Sau `init`, MCP entry (`llm-wiki-base-mcp`) đã nằm trong file MCP per-project/personal
 wiki (`.mcp.json` / `opencode.jsonc`, commit vào VCS được). Entry chạy
-`llm-wiki serve --mcp` (stdio) — `llm-wiki` phải có trên PATH. Server đọc
+`llm-wiki-base serve --mcp` (stdio) — `llm-wiki-base` phải có trên PATH. Server đọc
 `~/.llm-wiki-base/registry.toml` để biết tất cả wikis.
 
 Reload client (Claude Code / OpenCode / Zed) để pick up server.
@@ -143,9 +143,9 @@ Reload client (Claude Code / OpenCode / Zed) để pick up server.
 
 **Quản lý registry:**
 ```bash
-llm-wiki wiki list           # list all registered wikis
-llm-wiki wiki add <name> <path> --type project  # register wiki đã có sẵn
-llm-wiki wiki remove <name>  # xóa khỏi registry (files không bị xóa)
+llm-wiki-base wiki list           # list all registered wikis
+llm-wiki-base wiki add <name> <path> --type project  # register wiki đã có sẵn
+llm-wiki-base wiki remove <name>  # xóa khỏi registry (files không bị xóa)
 ```
 
 ## 7. Verify
@@ -178,4 +178,4 @@ Nếu muốn dùng Obsidian để đọc/edit wiki:
 - **Search trả 0 results** — chưa ingest. Chạy `tools/reindex.py` hoặc `tools/ingest.py <path>`.
 - **`wiki_lint` báo `orphans: ['wiki/index.md', 'wiki/log.md']`** — đó là top-level files, không phải page. Bỏ qua.
 - **MCP server báo "rag index chưa build"** — chạy `rag/index.py` rồi gọi lại `semantic_search`.
-- **`llm-wiki base install` fail** — check Python >= 3.10, `pip install llm-wiki` đã chạy.
+- **`llm-wiki-base base install` fail** — check Python >= 3.10, `pip install llm-wiki-base` đã chạy.

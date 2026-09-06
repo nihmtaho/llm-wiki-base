@@ -17,9 +17,9 @@ directly.
 
 Resources: `registry://wikis`, `wiki://<name>/index`, `wiki://<name>/log`.
 Rerank is **not an MCP tool** — it's the LLM step inside skill
-`llm-wiki-query` / `llm-wiki-research`.
+`llm-wiki-base-query` / `llm-wiki-base-research`.
 
-## Per-client setup (`llm-wiki init -c …`)
+## Per-client setup (`llm-wiki-base init -c …`)
 
 Always written into the per-project/personal wiki MCP file (committable to VCS,
 shared by the whole team):
@@ -31,9 +31,9 @@ shared by the whole team):
 | `opencode` | `<root>/opencode.jsonc` | `mcp` |
 | `zed` | no project-scope file → init reports skipped | `context_servers` |
 
-The entry points at `["llm-wiki", "serve", "--mcp"]` (like
-`codegraph serve --mcp`) — `llm-wiki` must be on PATH so agents can launch the
-server (`sudo ln -s "$(pwd)/.venv/bin/llm-wiki" /usr/local/bin/llm-wiki`).
+The entry points at `["llm-wiki-base", "serve", "--mcp"]` (like
+`codegraph serve --mcp`) — `llm-wiki-base` must be on PATH so agents can launch the
+server (`sudo ln -s "$(pwd)/.venv/bin/llm-wiki-base" /usr/local/bin/llm-wiki-base`).
 
 Restart the AI tool after init — the old MCP process keeps `registry.toml` in
 memory.

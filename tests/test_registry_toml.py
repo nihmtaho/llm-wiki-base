@@ -2,8 +2,8 @@
 
 
 def test_save_windows_path_roundtrip(tmp_path, monkeypatch):
-    monkeypatch.setenv("LLM_WIKI_REGISTRY", str(tmp_path / "registry.toml"))
-    from llm_wiki import registry
+    monkeypatch.setenv("LLM_WIKI_BASE_REGISTRY", str(tmp_path / "registry.toml"))
+    from llm_wiki_base import registry
 
     data = {"wikis": [{
         "name": "n",
@@ -17,8 +17,8 @@ def test_save_windows_path_roundtrip(tmp_path, monkeypatch):
 
 
 def test_save_quote_and_unicode_roundtrip(tmp_path, monkeypatch):
-    monkeypatch.setenv("LLM_WIKI_REGISTRY", str(tmp_path / "registry.toml"))
-    from llm_wiki import registry
+    monkeypatch.setenv("LLM_WIKI_BASE_REGISTRY", str(tmp_path / "registry.toml"))
+    from llm_wiki_base import registry
 
     data = {"wikis": [{
         "name": 'my "wiki"',

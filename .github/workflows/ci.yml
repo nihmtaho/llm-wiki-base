@@ -19,4 +19,4 @@ jobs:
       - name: Ruff
         run: ruff check src tests
       - name: Mypy
-        run: mypy src/llm_wiki/registry.py src/llm_wiki/cli.py
+        run: mypy src/llm_wiki_base/registry.py src/llm_wiki_base/cli.py

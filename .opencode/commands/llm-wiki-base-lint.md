@@ -1,0 +1,1 @@
+../../.agents/skills/llm-wiki-base-lint/SKILL.md
