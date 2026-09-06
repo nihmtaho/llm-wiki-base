@@ -55,7 +55,7 @@ def test_apply_emits_json_and_cli_roundtrips(tmp_path, monkeypatch, capsys):
     assert dest.read_text(encoding="utf-8") == body
     assert not prop.exists()
     assert "APPLIED\twiki/tech/concept/x.md" in out
-    result_line = next(l for l in out.splitlines() if l.startswith("RESULT "))
+    result_line = next(ln for ln in out.splitlines() if ln.startswith("RESULT "))
     payload = json.loads(result_line[len("RESULT "):])
     assert payload == {"status": "applied", "target": "wiki/tech/concept/x.md"}
 

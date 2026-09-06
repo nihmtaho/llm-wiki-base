@@ -1,18 +1,25 @@
+import datetime
+import glob
+import json
 import os
 import re
 import sys
-import json
 import time
-import glob
-import datetime
 
 import db
-import search
 import lint as lintmod
+import search
 from chunking import TRANSLATED_SUFFIX_RE
 from config_file import get_config
 from embed import EmbedProvider
-from paths import WIKI_ROOT, RAW_INBOX, RAG_DIR, RAW_DIR, WIKI_DIR, WIKI_LOG_FILE, SKIP_DIRS
+from paths import (
+    RAG_DIR,
+    RAW_DIR,
+    RAW_INBOX,
+    SKIP_DIRS,
+    WIKI_LOG_FILE,
+    WIKI_ROOT,
+)
 
 # Regex dùng chung với ingest/reindex/chunk index (tools/chunking.py).
 
@@ -201,7 +208,6 @@ def main():
 
 
 def _insert_log(rel):
-    import re
     log = str(WIKI_LOG_FILE)
     stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     block = f"## [{stamp}] ingest | {rel}\n"

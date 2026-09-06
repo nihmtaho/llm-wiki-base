@@ -4,7 +4,6 @@ Khi cài qua `pip install .`, files trong `src/llm_wiki/{templates,skills}/` đ�
 ship trong wheel và accessible qua `importlib.resources`. Khi chạy từ source
 (`pip install -e .` hoặc PYTHONPATH=src), load trực tiếp từ filesystem.
 """
-from importlib import resources
 from pathlib import Path
 
 _PACKAGE_ROOT = Path(__file__).resolve().parent

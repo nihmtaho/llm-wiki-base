@@ -5,7 +5,7 @@ tools/ chạy từ global venv (~/.llm-wiki-base/.venv) KHÔNG có package `llm_
 src/llm_wiki/config_file.py (write-only như tomli_w nằm ở package side).
 """
 try:
-    from llm_wiki.config_file import DEFAULTS, get_config, effective  # noqa: F401
+    from llm_wiki.config_file import DEFAULTS, effective, get_config  # noqa: F401
 except ImportError:
     # Fallback: chạy tools/ trực tiếp mà không cài package.
     import os

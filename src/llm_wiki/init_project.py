@@ -18,14 +18,14 @@ from pathlib import Path
 import typer
 from rich.prompt import Confirm
 
+from llm_wiki import _ui
 from llm_wiki._package_data import read_template, template_exists
 from llm_wiki._skills import install_skills
-from llm_wiki import _ui
 from llm_wiki._ui import console
-from llm_wiki.base import get_base_dir, get_base_python
+from llm_wiki.base import get_base_dir
 from llm_wiki.config import supported_clients
 from llm_wiki.config_file import ensure_wiki_identity
-from llm_wiki.installer import install_centralized_mcp, CENTRALIZED_SERVER_NAME
+from llm_wiki.installer import CENTRALIZED_SERVER_NAME, install_centralized_mcp
 from llm_wiki.registry import add_wiki
 
 
@@ -273,7 +273,7 @@ def run(
                   f"(skill ở {root}/.agents/skills/)")
     console.print(f"  3. Hoặc MCP tool: wiki_search(query, wiki='{wiki_name}') — "
                   "để wiki=\"\" để search mọi wiki")
-    console.print(f"  4. Đăng ký wiki khác (nếu có): [cyan]llm-wiki wiki add <name> <path> --type project[/cyan]")
+    console.print("  4. Đăng ký wiki khác (nếu có): [cyan]llm-wiki wiki add <name> <path> --type project[/cyan]")
     console.print(f"  5. Nạp source đầu tiên: [cyan]cd {wiki_dir} && llm-wiki ingest raw/inbox/<file>[/cyan]"
                   " (CLI chỉ index; viết page là việc của skill llm-wiki-ingest trong AI tool)")
-    console.print(f"  6. Đo retrieval sau khi có vài page: [cyan]llm-wiki eval --compare[/cyan]")
+    console.print("  6. Đo retrieval sau khi có vài page: [cyan]llm-wiki eval --compare[/cyan]")

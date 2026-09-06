@@ -27,8 +27,8 @@ import sys
 
 import db
 import search
-from config_file import get_config, effective
-from embed import EmbedProvider, DEFAULT_MODEL
+from config_file import effective, get_config
+from embed import DEFAULT_MODEL, EmbedProvider
 from paths import WIKI_ROOT
 
 try:

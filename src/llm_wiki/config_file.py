@@ -27,8 +27,8 @@ sạch comment. Mọi write vào `.llm-wiki.toml` đã tồn tại đi qua `_ups
 """
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 try:
     import tomllib  # py3.11+
@@ -227,6 +227,8 @@ def _upsert_toml_keys(text: str, section: str, pairs: dict[str, str]) -> str:
             end += 1
             continue
         m = pat.match(lines[hit])
+        if m is None:  # không xảy ra — hit đã match ở trên; guard cho type-checker
+            continue
         current, comment = m.group(2).strip(), (m.group(3) or "")
         if current != val.strip():
             lines[hit] = f"{key} = {val}{comment}"

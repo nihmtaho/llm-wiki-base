@@ -11,6 +11,6 @@ for _cand in ("tools", "base_tools"):
     _p = os.path.join(_PARENT, _cand)
     if os.path.isdir(_p):
         sys.path.insert(0, _p)
-from embed import EmbedProvider  # reuse single source of truth
+from embed import EmbedProvider  # noqa: E402 — reuse single source of truth
 
 __all__ = ["EmbedProvider"]

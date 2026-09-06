@@ -1,11 +1,11 @@
-import sys
 import os
+import sys
 
 import db
 import search
 from chunking import TRANSLATED_SUFFIX_RE, is_reserved
-from config_file import get_config, effective
-from embed import EmbedProvider, DEFAULT_MODEL
+from config_file import effective, get_config
+from embed import DEFAULT_MODEL, EmbedProvider
 
 # Skip translated files (song song EN source + bản dịch, bản dịch KHÔNG index).
 # Regex dùng chung với reindex/watch/chunk index (tools/chunking.py).

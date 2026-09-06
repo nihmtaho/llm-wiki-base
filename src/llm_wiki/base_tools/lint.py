@@ -102,7 +102,7 @@ def _check_layout(path: str, body: str, lcfg: dict, add) -> None:
     max_bullets = int(lcfg.get("max_bullet_items", 3) or 3)
     max_depth = int(lcfg.get("max_indent_depth", 3) or 3)
     for i, line in enumerate(lines):
-        pos = sum(len(l) + 1 for l in lines[:i])
+        pos = sum(len(ln) + 1 for ln in lines[:i])
         if any(s <= pos < e for s, e in skip_ranges) or not line.strip():
             continue
         n_bullets = len(_DENSE_BULLET_RE.findall(line))

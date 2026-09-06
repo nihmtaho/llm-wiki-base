@@ -155,9 +155,9 @@ def _diff_counts(content: str, meta: dict, name: str) -> str:
     if cur is None:
         return "mới (chưa có page)" if resolve_dest(meta, name) else "?"
     a, b = cur.splitlines(), content.splitlines()
-    diff = [l for l in difflib.unified_diff(a, b, n=0, lineterm="")]
-    plus = sum(1 for l in diff if l.startswith("+") and not l.startswith("+++"))
-    minus = sum(1 for l in diff if l.startswith("-") and not l.startswith("---"))
+    diff = [ln for ln in difflib.unified_diff(a, b, n=0, lineterm="")]
+    plus = sum(1 for ln in diff if ln.startswith("+") and not ln.startswith("+++"))
+    minus = sum(1 for ln in diff if ln.startswith("-") and not ln.startswith("---"))
     return f"+{plus}/-{minus}"
 
 
@@ -274,7 +274,7 @@ def cmd_apply(a: argparse.Namespace) -> int:
     _log_entry(rel, p.name)
     _reindex(rel, dest)
     print()
-    print(f"Duyệt nội dung (chữ ký của bạn, AI không tự set được):")
+    print("Duyệt nội dung (chữ ký của bạn, AI không tự set được):")
     print(f"  llm-wiki verify {rel} --by <human-id>")
     return 0
 
@@ -332,7 +332,7 @@ def _log_entry(rel: str, prop_name: str) -> None:
         log.write_text(f"{line}\n", encoding="utf-8")
         return
     lines = log.read_text(encoding="utf-8").splitlines()
-    at = next((i for i, l in enumerate(lines) if l.startswith("## [")), len(lines))
+    at = next((i for i, ln in enumerate(lines) if ln.startswith("## [")), len(lines))
     lines.insert(at, line)
     log.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

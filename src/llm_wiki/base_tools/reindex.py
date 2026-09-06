@@ -27,9 +27,9 @@ import sys
 import db
 import search
 from chunking import TRANSLATED_SUFFIX_RE, is_reserved
-from config_file import get_config, effective
-from embed import EmbedProvider, DEFAULT_MODEL
-from paths import WIKI_ROOT, WIKI_DIR, RAW_DIR, RAG_DIR, SKIP_DIRS
+from config_file import effective, get_config
+from embed import DEFAULT_MODEL, EmbedProvider
+from paths import RAG_DIR, RAW_DIR, SKIP_DIRS, WIKI_DIR, WIKI_ROOT
 
 # Regex dùng chung với ingest/watch/chunk index (tools/chunking.py).
 
@@ -39,7 +39,7 @@ _BASE_DIR = os.environ.get("LLM_WIKI_BASE_DIR") or os.path.expanduser("~/.llm-wi
 _GLOBAL_RAG = os.path.join(_BASE_DIR, "rag")
 if _GLOBAL_RAG not in sys.path:
     sys.path.insert(0, _GLOBAL_RAG)
-import index as rag_index
+import index as rag_index  # noqa: E402
 
 INDEX_META_FILE = os.path.join(str(WIKI_DIR), ".index_meta.json")
 SCHEMA_VERSION = 3  # 3: thêm chunks_fts (BM25 chunk-level) — wiki cũ cần reindex --full
