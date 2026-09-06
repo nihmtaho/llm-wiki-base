@@ -28,6 +28,8 @@ try:
 except ImportError:  # pragma: no cover
     import tomli as tomllib  # type: ignore
 
+import tomli_w
+
 try:
     TOMLDecodeError = tomllib.TOMLDecodeError
 except AttributeError:  # pragma: no cover
@@ -79,20 +81,8 @@ def save(data: dict) -> Path:
     """Ghi registry TOML (idempotent overwrite toàn bộ file)."""
     p = get_registry_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    lines = []
-    wikis = data.get("wikis", [])
-    for i, w in enumerate(wikis):
-        lines.append(f"[[wikis]]")
-        for k, v in w.items():
-            if isinstance(v, str):
-                lines.append(f'{k} = "{v}"')
-            elif isinstance(v, bool):
-                lines.append(f"{k} = {'true' if v else 'false'}")
-            else:
-                lines.append(f'{k} = "{v}"')
-        if i < len(wikis) - 1:
-            lines.append("")
-    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with p.open("wb") as f:
+        tomli_w.dump({"wikis": data.get("wikis", [])}, f)
     return p
 
 
