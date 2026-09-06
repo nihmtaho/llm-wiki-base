@@ -1,1 +1,1 @@
-/Users/nihmtaho/developer/repos/per-projects/llm-wiki-base/.agents/skills/llm-wiki-lint/SKILL.md
+../../.agents/skills/llm-wiki-lint/SKILL.md
