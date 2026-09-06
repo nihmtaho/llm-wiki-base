@@ -53,10 +53,3 @@ include = [
     "src/llm_wiki/skills/**",
     "src/llm_wiki/templates/**",
 ]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/llm_wiki/skills" = "llm_wiki/skills"
-"src/llm_wiki/templates" = "llm_wiki/templates"
-"src/llm_wiki/base_tools" = "llm_wiki/base_tools"
-"src/llm_wiki/base_rag" = "llm_wiki/base_rag"
-"src/llm_wiki/base_scripts" = "llm_wiki/base_scripts"
