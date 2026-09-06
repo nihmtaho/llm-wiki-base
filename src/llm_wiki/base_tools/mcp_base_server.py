@@ -19,10 +19,8 @@ Transport: stdio. Logging → stderr (stdout dành cho JSON-RPC).
 import datetime
 import json
 import logging
-import math
 import os
 import re
-import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
@@ -34,12 +32,12 @@ _TOOLS_DIR = Path(__file__).resolve().parent
 if str(_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_TOOLS_DIR))
 
-import db
-import lint as lintmod
-import proposals as proposalsmod
-import search
-from config_file import get_config, effective
-from embed import EmbedProvider, DEFAULT_MODEL
+import db  # noqa: E402
+import lint as lintmod  # noqa: E402
+import proposals as proposalsmod  # noqa: E402
+import search  # noqa: E402
+from config_file import effective, get_config  # noqa: E402
+from embed import DEFAULT_MODEL, EmbedProvider  # noqa: E402
 
 # ── Registry ─────────────────────────────────────────────────────────────────
 _BASE_DIR = os.environ.get("LLM_WIKI_BASE_DIR") or os.path.expanduser("~/.llm-wiki-base")

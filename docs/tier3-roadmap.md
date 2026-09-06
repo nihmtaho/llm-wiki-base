@@ -129,6 +129,8 @@ Nguồn: `docs/human-ideas/improve/tasks.md`. Chi tiết trong
 
 *Ưu tiên còn lại: **4–5** khi cần portability / codebase profile thật; **6–7** khi multi-agent hoặc
 automation trở thành use case thực tế; **8–10** rẻ và không phá gì, làm khi có nhu cầu cụ thể.
-Trong nhóm retrieval: `exclude_from_index` (§3b) là bước tiếp theo đáng làm nhất nếu wiki của bạn
-có `log.md` dài chiếm kết quả; cross-encoder rerank chỉ khi dùng wiki ngoài AI tool
+Trong nhóm retrieval: reserved pages (`index.md`/`log.md`) đã loại khỏi mọi kênh
+index từ fix `search.index_file` + `reindex._collect_files`; `exclude_from_index`
+(§3b, do user cấu hình) vẫn là bước tiếp theo nếu wiki của bạn có page dài khác
+chiếm kết quả; cross-encoder rerank chỉ khi dùng wiki ngoài AI tool
 (script/dashboard) mà vẫn cần chất lượng rerank.*

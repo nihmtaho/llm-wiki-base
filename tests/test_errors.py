@@ -1,4 +1,5 @@
 from typer.testing import CliRunner
+
 from llm_wiki.cli import app
 
 

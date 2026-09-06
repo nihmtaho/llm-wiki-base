@@ -18,14 +18,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
-
 import db
 import lint as lintmod
 import proposals as proposalsmod
 import search
 from embed import EmbedProvider
-from paths import WIKI_ROOT, WIKI_INDEX_FILE, WIKI_LOG_FILE, RAW_INBOX, RAG_DIR, RAW_DIR
+from mcp.server.fastmcp import FastMCP
+from paths import RAG_DIR, RAW_DIR, RAW_INBOX, WIKI_INDEX_FILE, WIKI_LOG_FILE, WIKI_ROOT
 
 WIKI_ROOT = str(WIKI_ROOT)
 RAW_INBOX = Path(RAW_INBOX)

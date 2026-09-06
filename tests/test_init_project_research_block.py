@@ -4,7 +4,6 @@ Covers template + `_ensure_root_research_block` + `run()` hook.
 Idempotent: create → append → refresh-in-place, never duplicate.
 """
 
-from pathlib import Path
 
 from llm_wiki import init_project
 from llm_wiki._package_data import template_exists

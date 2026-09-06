@@ -79,14 +79,14 @@ Fallback on any OS — call through the venv: `./.venv/bin/llm-wiki base install
 
 ```bash
 mkdir demo && cd demo
-llm-wiki init personal -c commandcode --lang vi   # or -c claude / opencode / zed
+llm-wiki setup personal -c commandcode --lang vi   # or -c claude / opencode / zed
 echo "# Notes\n\nExpo Router SplitView uses \`unstable_splitView\`." > raw/inbox/note.md
 
-# Two DIFFERENT jobs — don't confuse them:
-llm-wiki ingest raw/inbox/note.md      # (A) deterministic: file INTO search DB
+# One rule — ingest INDEXES, it never writes pages:
+llm-wiki wiki ingest raw/inbox/note.md   # (A) deterministic: file INTO search DB
 # (B) writing wiki pages is the SKILL's job: open an AI tool, run skill `llm-wiki-ingest`
 
-llm-wiki reindex && llm-wiki lint && llm-wiki doctor
+llm-wiki wiki reindex && llm-wiki check lint && llm-wiki setup doctor
 ```
 
 `llm-wiki doctor` tells you which commands the CLI handles alone and which
@@ -149,13 +149,13 @@ reads `registry.toml` to find wikis. Setup guide: [`docs/init.md`](docs/init.md)
 ## CLI
 
 ```bash
-llm-wiki init personal --name "My Knowledge" --lang vi
-llm-wiki init project -c claude -c opencode
+llm-wiki setup personal --name "My Knowledge" --lang vi
+llm-wiki setup project -c claude -c opencode
 llm-wiki wiki list                                   # wikis in registry.toml
-llm-wiki ingest raw/inbox/foo.md                     # index one source (writes no pages)
-llm-wiki reindex && llm-wiki lint && llm-wiki doctor
-llm-wiki eval --compare                              # retrieval A/B with verdict
-llm-wiki proposals apply <name> --by you
+llm-wiki wiki ingest raw/inbox/foo.md                # index one source (writes no pages)
+llm-wiki wiki reindex && llm-wiki check lint && llm-wiki setup doctor
+llm-wiki check eval --compare                        # retrieval A/B with verdict
+llm-wiki review apply <name> --by you
 llm-wiki upgrade --dry-run                           # skills+configs → newest GitHub tag
 llm-wiki translate enable --lang vi --lang ja
 ```
@@ -247,15 +247,22 @@ layouts and flag details: [`docs/upgrading.md`](docs/upgrading.md).
 - **Contradiction = tell the human**, never materialize as an edge or pick a side silently.
 - **Provenance required.** Every claim has a `[[wiki page]]` in-body or a URL in `sources:`.
 - **No writes outside the wiki.** Proposed/proposal paths are normalized and confined to the target wiki's `wiki/`.
-- **Known limits:** `wiki/log.md` still matches `bm25_page` (chunks only excluded); eval covers one wiki (no cross-wiki metric yet); `[models]` is a paper contract (no headless ingest yet); `pages.embedding` is written but RRF ignores it.
+- **Known limits:** eval covers one wiki (no cross-wiki metric yet — see
+  [`docs/tier3-roadmap.md`](docs/tier3-roadmap.md)); `[models]` is a paper
+  contract for the skill layer (no headless ingest yet); `pages.embedding` is
+  written but only read by `fusion="weighted"` (RRF fuses ranks, not vectors).
 
 ## Contributing
 
 ```bash
-pip install -e .                # CLI venv
+pip install -e .[dev]              # CLI venv + pytest/ruff/mypy
 llm-wiki base install           # sync src/llm_wiki/base_tools → ~/.llm-wiki-base/tools/
-python3 -m pytest tests/ -q     # must be green before any commit/PR
+PYTHONPATH=src python -m pytest tests/ -q   # gate 1: tests
+ruff check src tests                       # gate 2: lint
+mypy src/llm_wiki/registry.py src/llm_wiki/cli.py  # gate 3: types
 ```
+All three gates run in CI (`.github/workflows/ci.yml`) and must be green
+before any commit/PR.
 
 - Commits follow Conventional Commits (`type(scope): subject`, no AI trailers,
   never on `main`) — enforced by a pre-commit guard; see skill `git-commit`.

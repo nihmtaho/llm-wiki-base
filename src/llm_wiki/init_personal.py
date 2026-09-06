@@ -14,14 +14,14 @@ from pathlib import Path
 import typer
 from rich.prompt import Confirm
 
+from llm_wiki import _ui
 from llm_wiki._package_data import read_template, template_exists
 from llm_wiki._skills import install_skills
-from llm_wiki import _ui
 from llm_wiki._ui import console
 from llm_wiki.base import get_base_dir
 from llm_wiki.config import supported_clients
 from llm_wiki.config_file import ensure_wiki_identity
-from llm_wiki.installer import install_centralized_mcp, CENTRALIZED_SERVER_NAME
+from llm_wiki.installer import CENTRALIZED_SERVER_NAME, install_centralized_mcp
 from llm_wiki.registry import add_wiki
 
 
@@ -210,8 +210,8 @@ def run(
     console.print()
     console.print("Next steps:")
     console.print(f"  1. Drop sources vào: {cwd}/raw/inbox/")
-    console.print(f"  2. Ingest thật sự = chạy skill [bold]llm-wiki-ingest[/bold] trong AI tool "
-                  f"(CLI `llm-wiki ingest` chỉ index file đã có, không viết page)")
+    console.print("  2. Ingest thật sự = chạy skill [bold]llm-wiki-ingest[/bold] trong AI tool "
+                  "(CLI `llm-wiki ingest` chỉ index file đã có, không viết page)")
     console.print(f"  3. AI tool load skills từ [cyan]{cwd}/.agents/skills/[/cyan] — "
                   "Command Code đọc `.agents/skills/` trực tiếp; Claude/OpenCode đã được link")
     console.print(f"  4. MCP search: wiki_search(query, wiki='{wiki_name}'), hoặc wiki=\"\" để search mọi wiki")

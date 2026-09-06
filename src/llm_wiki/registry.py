@@ -1,22 +1,23 @@
-"""Wiki registry — TOML file ánh xạ wiki name → id + path + type.
+"""Wiki registry — TOML file mapping wiki name → id + path + type.
 
-Registry nằm ở `<base_dir>/registry.toml`, quản lý bởi centralized MCP server
-(`llm-wiki-base-mcp`) để biết được tất cả wikis có sẵn trên máy.
+The registry lives at `<base_dir>/registry.toml` and is managed by the centralized
+MCP server (`llm-wiki-base-mcp`) so it knows every wiki on this machine.
 
 Format:
     # registry.toml
     [[wikis]]
-    name = "my-knowledge"                 # key tra cứu — dùng làm tham số `wiki=`
-    id = "b41c2f9a7d3e4a11"               # UUID ổn định — không đổi khi đổi tên/folder
+    name = "my-knowledge"                 # lookup key — the `wiki=` parameter
+    id = "b41c2f9a7d3e4a11"               # stable UUID — survives renames/moves
     path = "/Users/me/my-knowledge"
     type = "personal"
     added = "2026-09-01T10:00:00"
 
-Vì sao có cả `name` lẫn `id`: `name` là thứ con người gõ vào `wiki=` và vào
-`llm-wiki wiki remove`, nên nó phải dễ đọc. `id` là danh tính máy — cần để phát
-hiện "hai wiki khác nhau cùng tên", vốn đã xảy ra thật (2 project wiki cùng tên
-`wiki` vì init lấy tên theo subfolder, và upsert theo name đá wiki đầu khỏi
-registry im lặng). Giờ trùng tên khác path → tự thêm hậu tố `-<uuid8>`.
+Why both `name` and `id`: `name` is what humans type into `wiki=` and
+`llm-wiki wiki remove`, so it must be readable. `id` is the machine identity —
+needed to detect "two different wikis with the same name", which really happened
+(2 project wikis both named `wiki` because init names after the subfolder, and
+name-based upsert silently evicted the first wiki from the registry). Same name +
+different path now auto-suffixes `-<uuid8>`.
 """
 import os
 import uuid
@@ -31,7 +32,7 @@ except ImportError:  # pragma: no cover
 import tomli_w
 
 try:
-    TOMLDecodeError = tomllib.TOMLDecodeError
+    TOMLDecodeError: type[Exception] = tomllib.TOMLDecodeError
 except AttributeError:  # pragma: no cover
     TOMLDecodeError = Exception
 

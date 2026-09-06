@@ -1,6 +1,6 @@
+import datetime
 import os
 import re
-import datetime
 import unicodedata
 
 WIKI_ROOT = None  # set by caller via set_root

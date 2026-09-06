@@ -3,7 +3,7 @@ import os
 import re
 import sqlite3
 
-from paths import WIKI_ROOT, WIKI_DB_FILE
+from paths import WIKI_DB_FILE, WIKI_ROOT
 
 # Backwards-compat: WIKI_DB env var still wins (legacy name).
 DB_PATH = os.environ.get("WIKI_DB", str(WIKI_DB_FILE))

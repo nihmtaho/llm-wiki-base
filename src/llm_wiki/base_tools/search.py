@@ -18,6 +18,11 @@ Fallback tất định (idea.md:162 "không model ≠ hỏng"): mỗi kênh tự
 tầng thiếu — chunks_fts vắng/rỗng, vectors.npy chưa build, provider None, numpy
 thiếu. Không bao giờ raise.
 
+`pages.embedding` vẫn được ghi khi `vector=true` nhưng RRF KHÔNG đọc nó — RRF
+chỉ fusion trên HẠNG của 3 kênh bm25_page / bm25_chunk / vector_chunk. Cột đó
+chỉ phục vụ `fusion="weighted"` (hành vi Tier 1: weighted sum BM25 + cosine,
+giữ làm rollback/baseline cho `eval --compare`). Đừng xoá: xoá là mất baseline.
+
 Mọi setting đọc PER-CALL (`_retrieval_settings`, `rag_index_dir`), không
 module-level: centralized MCP `_set_wiki_ctx` đổi `db.WIKI_ROOT` + env giữa các
 lệnh trong cùng một process.
@@ -31,8 +36,8 @@ import re
 
 import db
 from chunking import chunk_markdown, clean_body, is_reserved
-from config_file import get_config, effective
-from embed import EmbedProvider, DEFAULT_MODEL
+from config_file import effective, get_config
+from embed import EmbedProvider
 
 log = logging.getLogger("llm-wiki.search")
 

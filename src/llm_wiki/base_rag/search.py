@@ -1,6 +1,7 @@
-import os
 import json
+import os
 import sys
+
 import numpy as np
 from embeddings import EmbedProvider
 
@@ -12,9 +13,9 @@ for _cand in ("tools", "base_tools"):
     _p = os.path.join(_PARENT, _cand)
     if os.path.isdir(_p):
         sys.path.insert(0, _p)
-from paths import RAG_INDEX_DIR, WIKI_ROOT  # noqa: E402
-from config_file import get_config, effective  # noqa: E402
+from config_file import effective, get_config  # noqa: E402
 from embed import DEFAULT_MODEL  # noqa: E402
+from paths import RAG_INDEX_DIR, WIKI_ROOT  # noqa: E402
 
 INDEX_DIR = str(RAG_INDEX_DIR)
 VECTORS_FILE = os.path.join(INDEX_DIR, "vectors.npy")

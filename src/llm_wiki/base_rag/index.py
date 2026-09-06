@@ -1,8 +1,8 @@
+import glob
+import hashlib
+import json
 import os
 import sys
-import glob
-import json
-import hashlib
 from datetime import datetime
 
 import numpy as np
@@ -16,14 +16,14 @@ for _cand in ("tools", "base_tools"):
     _p = os.path.join(_PARENT, _cand)
     if os.path.isdir(_p):
         sys.path.insert(0, _p)
-from paths import WIKI_ROOT, WIKI_DIR, RAG_INDEX_DIR, SKIP_DIRS  # noqa: E402
-from config_file import get_config, effective  # noqa: E402
-from embed import DEFAULT_MODEL  # noqa: E402
 from chunking import (  # noqa: E402
     TRANSLATED_SUFFIX_RE,
     chunk_markdown,
     is_reserved,
 )
+from config_file import effective, get_config  # noqa: E402
+from embed import DEFAULT_MODEL  # noqa: E402
+from paths import RAG_INDEX_DIR, SKIP_DIRS, WIKI_DIR, WIKI_ROOT  # noqa: E402
 
 # Chunker sống ở tools/chunking.py (dep-free) và DÙNG CHUNG với chunk-level BM25:
 # 2 pipeline phải cùng ranh giới chunk thì RRF fusion giữa kênh `bm25_chunk`

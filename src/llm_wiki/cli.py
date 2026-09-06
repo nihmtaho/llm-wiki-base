@@ -3,40 +3,41 @@
 Subcommands (canonical):
     setup personal   — init personal knowledge wiki in-place (data only + MCP + registry)
     setup project    — init project wiki + install centralized MCP per-project + register
-    setup tools      — install global runtime to ~/.llm-wiki-base/ (1 lần per máy)
-    setup doctor     — kiểm tra môi trường + nói rõ lệnh nào cần AI tool
-    wiki ingest      — wrapper: gọi global tools/ingest.py với cwd context
+    setup tools      — install global runtime to ~/.llm-wiki-base/ (once per machine)
+    setup doctor     — check environment + show which commands need an AI tool
+    wiki ingest      — wrapper: call global tools/ingest.py with cwd context
     wiki reindex     — wrapper: rebuild search DB + RAG (--full | --check)
-    check lint       — wrapper: health check (--fix để sửa an toàn)
-    check verify     — human duyệt artifact: set/clear `verified` trong frontmatter page
-    check eval       — wrapper: đo retrieval trên query vàng P@k/R@k/MRR (--compare)
-    review ...       — duyệt staging edits của AI: list / show (diff) / apply / discard
-    watch            — wrapper: daemon scan inbox + ingest + reindex
-    serve --mcp      — chạy centralized MCP server (stdio) cho AI tool
-    translate        — enable/disable/status/check (việc DỊCH là của skill, không phải CLI)
-    config show      — in effective config (defaults + .llm-wiki.toml + env override)
+    check lint       — wrapper: health check (--fix for safe fixes)
+    check verify     — human reviews artifact: set/clear `verified` in page frontmatter
+    check eval       — wrapper: measure retrieval on golden queries P@k/R@k/MRR (--compare)
+    review ...       — review AI staging edits: list / show (diff) / apply / discard
+    watch            — wrapper: daemon scanning inbox + ingest + reindex
+    serve --mcp      — run centralized MCP server (stdio) for AI tools
+    translate        — enable/disable/status/check (TRANSLATING is the skill's job, not CLI)
+    config show      — print effective config (defaults + .llm-wiki.toml + env overrides)
 
-Mọi lệnh ở trên là TẤT ĐỊNH. llm-wiki không gọi LLM: phần sinh nội dung (ingest ra
-page, review, consolidate, translate, rerank) là SKILL chạy bằng LLM của AI tool đang
-mở. `llm-wiki setup doctor` liệt kê đúng ranh giới đó khi bạn không chắc.
+Every command above is DETERMINISTIC. llm-wiki never calls an LLM: content
+generation (ingest into pages, review, consolidate, translate, rerank) is done
+by SKILLS running on the LLM of the AI tool you have open.
+`llm-wiki setup doctor` lists exactly that boundary when you are unsure.
 """
 import os
+import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import typer
 from rich.prompt import Confirm, Prompt
 
-from llm_wiki import _ui
+from llm_wiki import __version__, _ui
 from llm_wiki._ui import console
-
-from llm_wiki import __version__
 from llm_wiki.base import get_base_dir, get_base_python, install_base
 
 app = typer.Typer(
     name="llm-wiki",
-    help="LLM-maintained wiki với hybrid BM25+vector search, centralized MCP bridge, multi-base init.",
+    help="LLM-maintained wiki with hybrid BM25+vector search, centralized MCP bridge, multi-base init.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -45,7 +46,7 @@ app = typer.Typer(
 # shows init help, `init personal|project` still work as hidden aliases.
 # The wizard lives at `setup` (setup_interactive) since Task 7.
 init_app = typer.Typer(
-    help="Init mới 1 wiki (personal hoặc project)",
+    help="Init a new wiki (personal or project)",
     hidden=True,
     epilog="Examples:\n  llm-wiki init\n  llm-wiki setup personal --name notes --no-mcp",
 )
@@ -54,10 +55,10 @@ setup_app = typer.Typer(
     help="Set up wikis, tools and health checks",
     epilog="Examples:\n  llm-wiki setup\n  llm-wiki setup personal --name notes --yes",
 )
-wiki_app = typer.Typer(help="Quản lý wikis trong centralized MCP registry")
+wiki_app = typer.Typer(help="Manage wikis in the centralized MCP registry")
 check_app = typer.Typer(help="Check wiki health: lint, verify, eval")
 review_app = typer.Typer(help="Review AI-proposed wiki edits (wiki/.proposals/)")
-translate_app = typer.Typer(help="Translate wiki pages sang ngôn ngữ khác")
+translate_app = typer.Typer(help="Translate wiki pages into other languages")
 config_app = typer.Typer(help="Behavior config per-wiki (.llm-wiki.toml)")
 
 # Root --help renders in registration order (spec §6 goal order): singles
@@ -120,8 +121,8 @@ def setup_interactive(ctx: typer.Context) -> None:
     """
     if ctx.invoked_subcommand is not None:
         return
-    _ui.banner("llm-wiki setup", "Tạo wiki mới trong 3 câu hỏi.")
-    wtype = Prompt.ask("Loại wiki", choices=["personal", "project"], default="personal")
+    _ui.banner("llm-wiki setup", "Create a new wiki in 3 questions.")
+    wtype = Prompt.ask("Wiki type", choices=["personal", "project"], default="personal")
     if wtype == "personal":
         _slim_personal()
     else:
@@ -146,11 +147,11 @@ def _prompt_interactive_extras(lang: str, skills_target: str,
                                skip_mcp: bool) -> tuple[str, str, bool]:
     """Dropped questions, restored by `--interactive` (spec §5)."""
     lang = Prompt.ask(
-        "Ngôn ngữ wiki (agent sẽ viết page bằng ngôn ngữ này)", default=lang)
+        "Wiki language (the agent will write pages in this language)", default=lang)
     skills_target = Prompt.ask(
         "Skills target", choices=["universal", "claude", "both", "skip"],
         default=skills_target)
-    do_mcp = Confirm.ask("Cài MCP vào wiki không?", default=not skip_mcp)
+    do_mcp = Confirm.ask("Install MCP into the wiki?", default=not skip_mcp)
     return lang, skills_target, not do_mcp
 
 
@@ -160,8 +161,8 @@ def _confirm_and_run_personal(cwd: Path, name: str | None, lang: str,
                               force: bool = False) -> None:
     from llm_wiki.init_personal import run as run_personal
     facts = [
-        "Loại:     personal",
-        f"Tên:      {name or cwd.name}",
+        "Type:     personal",
+        f"Name:     {name or cwd.name}",
         f"Path:     {cwd}",
         f"Lang:     {lang}",
         f"Clients:  {', '.join(clients) if clients else '(none)'}",
@@ -169,7 +170,7 @@ def _confirm_and_run_personal(cwd: Path, name: str | None, lang: str,
         f"MCP:      {'skip' if skip_mcp else 'install'}",
     ]
     _ui.ok_panel("Ready to create", facts)
-    if not (yes or force) and not Confirm.ask("Tạo wiki?", default=True):
+    if not (yes or force) and not Confirm.ask("Create wiki?", default=True):
         raise typer.Exit(0)
     # Summary confirm subsumes run()'s empty-dir confirm → force=True avoids a 2nd prompt.
     run_personal(cwd=cwd, name=name, force=True, skills_target=skills_target,
@@ -185,7 +186,7 @@ def _confirm_and_run_project(root: Path, wiki_subdir: str, lang: str,
     from llm_wiki.installer import CENTRALIZED_SERVER_NAME
     server_name = server_name or CENTRALIZED_SERVER_NAME
     facts = [
-        "Loại:     project",
+        "Type:     project",
         f"Root:     {root}",
         f"Subdir:   {wiki_subdir}",
         f"Lang:     {lang}",
@@ -195,7 +196,7 @@ def _confirm_and_run_project(root: Path, wiki_subdir: str, lang: str,
         f"Server:   {server_name}",
     ]
     _ui.ok_panel("Ready to create", facts)
-    if not (yes or force) and not Confirm.ask("Tạo wiki?", default=True):
+    if not (yes or force) and not Confirm.ask("Create wiki?", default=True):
         raise typer.Exit(0)
     run_project(root=root, wiki_subdir=wiki_subdir, clients=clients,
                 server_name=server_name, force=True, skills_target=skills_target,
@@ -206,9 +207,9 @@ def _slim_personal() -> None:
     """Q1 location (name) → Q3 clients; lang/skills/MCP use fixed defaults
     (extras only via `setup personal|project --interactive`)."""
     cwd = Path.cwd()
-    name = Prompt.ask("Tên wiki", default=cwd.name)
+    name = Prompt.ask("Wiki name", default=cwd.name)
     clients = _parse_clients(Prompt.ask(
-        "AI client để cài MCP (cách nhau bằng dấu phẩy)", default="claude"))
+        "AI clients for MCP install (comma-separated)", default="claude"))
     _validate_clients(clients)
     lang, skills_target, skip_mcp = "en", "universal", False
     _confirm_and_run_personal(cwd, name, lang, clients, skills_target, skip_mcp, yes=False)
@@ -220,7 +221,7 @@ def _slim_project() -> None:
     root = Path(Prompt.ask("Project root", default=str(Path.cwd()))).resolve()
     wiki_subdir = Prompt.ask("Wiki subdir (under project root)", default="project-wiki")
     clients = _parse_clients(Prompt.ask(
-        "AI client để cài MCP (cách nhau bằng dấu phẩy)", default="claude"))
+        "AI clients for MCP install (comma-separated)", default="claude"))
     _validate_clients(clients)
     lang, skills_target, skip_mcp = "en", "universal", False
     _confirm_and_run_project(root, wiki_subdir, lang, clients, skills_target, skip_mcp, yes=False)
@@ -229,40 +230,40 @@ def _slim_project() -> None:
 @setup_app.command("personal")
 @init_app.command("personal", hidden=True)
 def init_personal(
-    here: bool = typer.Option(True, "--here", help="Init tại cwd (in-place)."),
-    name: str | None = typer.Option(None, "--name", "-n", help="Wiki name (default: tên folder)."),
+    here: bool = typer.Option(True, "--here", help="Init at cwd (in-place)."),
+    name: str | None = typer.Option(None, "--name", "-n", help="Wiki name (default: folder name)."),
     lang: str | None = typer.Option(
         None, "--lang", "-l",
-        help="Ngôn ngữ wiki ghi vào [wiki].lang (vd vi, en). Agent viết page bằng ngôn ngữ này.",
+        help="Wiki language written to [wiki].lang (e.g. vi, en). The agent writes pages in this language.",
     ),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirm nếu dir có content."),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation when the dir has content."),
     client: list[str] = typer.Option(
         ["claude"], "--client", "-c",
-        help="AI client để cài centralized MCP: claude | opencode | zed | commandcode. "
-             "Truyền nhiều lần: -c claude -c commandcode.",
+        help="AI client for the centralized MCP: claude | opencode | zed | commandcode. "
+             "Repeat: -c claude -c commandcode.",
     ),
-    no_mcp: bool = typer.Option(False, "--no-mcp", help="Skip cài MCP vào per-project/personal wiki."),
+    no_mcp: bool = typer.Option(False, "--no-mcp", help="Skip MCP install into the per-project/personal wiki."),
     skills_target: str = typer.Option(
         "universal", "--skills-target",
-        help="Nơi cài skill: 'universal' = <wiki>/.agents/skills/ (canonical, Claude/OpenCode "
-             "được symlink vào); 'claude' = thêm symlink .claude/skills/; 'both' = + "
+        help="Where to install skills: 'universal' = <wiki>/.agents/skills/ (canonical, "
+             "Claude/OpenCode symlinked in); 'claude' = also symlink .claude/skills/; 'both' = + "
              ".opencode/commands/; 'skip'.",
     ),
     no_skills: bool = typer.Option(False, "--no-skills", help="Skip skill install."),
     no_register: bool = typer.Option(
         False, "--no-register",
-        help="Không ghi wiki vào registry.toml (test/script — tránh làm bẩn registry thật).",
+        help="Skip writing this wiki to registry.toml (tests/scripts — keeps the real registry clean).",
     ),
     yes: bool = typer.Option(
         False, "--yes", "-y",
-        help="Bỏ qua màn hình confirm (scripts/CI). Không bao giờ hỏi.",
+        help="Skip the confirmation screen (scripts/CI). Never prompts.",
     ),
     interactive: bool = typer.Option(
         False, "--interactive", "-i",
-        help="Hỏi thêm lang, skills target, skip MCP trước màn hình confirm.",
+        help="Ask for lang, skills target, and skip-MCP before the confirmation screen.",
     ),
 ) -> None:
-    """Init 1 personal knowledge wiki tại cwd. In-place. Cài MCP + registry mặc định.
+    """Init one personal knowledge wiki at cwd. In-place. Installs MCP + registry by default.
 
     Examples:
         llm-wiki setup personal --name notes
@@ -276,7 +277,7 @@ def init_personal(
     clients = list(client)
     if interactive:
         client_str = Prompt.ask(
-            "AI client để cài MCP (cách nhau bằng dấu phẩy)",
+            "AI clients for MCP install (comma-separated)",
             default=",".join(clients) if clients else "claude",
         )
         clients = _parse_clients(client_str)
@@ -294,42 +295,42 @@ def init_project(
     root: Path = typer.Option(Path.cwd(), "--root", "-r", help="Project root (default: cwd)."),
     wiki_dir: str = typer.Option(
         "project-wiki", "--wiki-dir", "-w",
-        help="Subfolder dưới project root để chứa wiki data.",
+        help="Subfolder under the project root to hold wiki data.",
     ),
     lang: str | None = typer.Option(
         None, "--lang", "-l",
-        help="Ngôn ngữ wiki ghi vào [wiki].lang (vd vi, en).",
+        help="Wiki language written to [wiki].lang (e.g. vi, en).",
     ),
     client: list[str] = typer.Option(
         ["claude"], "--client", "-c",
-        help="AI client để cài centralized MCP: claude | opencode | zed | commandcode.",
+        help="AI client for the centralized MCP: claude | opencode | zed | commandcode.",
     ),
     server_name: str = typer.Option(
         "llm-wiki-base-mcp", "--server-name", "-s",
-        help="Tên centralized MCP server (shared across all wikis trên máy).",
+        help="Centralized MCP server name (shared across all wikis on this machine).",
     ),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirm nếu wiki subdir có content."),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation when the wiki subdir has content."),
     skills_target: str = typer.Option(
         "universal", "--skills-target",
-        help="Nơi cài skill: 'universal' (canonical .agents/skills/ + link client), "
+        help="Where to install skills: 'universal' (canonical .agents/skills/ + client links), "
              "'claude', 'both', 'skip'.",
     ),
     no_skills: bool = typer.Option(False, "--no-skills", help="Skip skill install."),
-    no_mcp: bool = typer.Option(False, "--no-mcp", help="Skip cài MCP vào per-project wiki."),
+    no_mcp: bool = typer.Option(False, "--no-mcp", help="Skip MCP install into the per-project wiki."),
     no_register: bool = typer.Option(
         False, "--no-register",
-        help="Không ghi wiki vào registry.toml (test/script — tránh làm bẩn registry thật).",
+        help="Skip writing this wiki to registry.toml (tests/scripts — keeps the real registry clean).",
     ),
     yes: bool = typer.Option(
         False, "--yes", "-y",
-        help="Bỏ qua màn hình confirm (scripts/CI). Không bao giờ hỏi.",
+        help="Skip the confirmation screen (scripts/CI). Never prompts.",
     ),
     interactive: bool = typer.Option(
         False, "--interactive", "-i",
-        help="Hỏi thêm lang, skills target, skip MCP trước màn hình confirm.",
+        help="Ask for lang, skills target, and skip-MCP before the confirmation screen.",
     ),
 ) -> None:
-    """Init project wiki: tạo <root>/<wiki-dir>/ + register vào TOML + MCP per-project + skills.
+    """Init a project wiki: create <root>/<wiki-dir>/ + TOML register + per-project MCP + skills.
 
     Examples:
         llm-wiki setup project --root . --wiki-dir project-wiki
@@ -341,7 +342,7 @@ def init_project(
     clients = list(client)
     if interactive:
         client_str = Prompt.ask(
-            "AI client để cài MCP (cách nhau bằng dấu phẩy)",
+            "AI clients for MCP install (comma-separated)",
             default=",".join(clients) if clients else "claude",
         )
         clients = _parse_clients(client_str)
@@ -360,7 +361,7 @@ def init_project(
 
 @wiki_app.command("list")
 def wiki_list_cmd() -> None:
-    """Liệt kê tất cả wikis trong centralized MCP registry.
+    """List all wikis in the centralized MCP registry.
 
     Examples:
         llm-wiki wiki list
@@ -370,26 +371,26 @@ def wiki_list_cmd() -> None:
     if not wikis:
         if _ui.is_quiet():
             return
-        console.print("[dim]Registry rỗng. Chạy `llm-wiki setup` để tạo wiki đầu tiên.[/dim]")
+        console.print("[dim]Registry is empty. Run `llm-wiki setup` to create your first wiki.[/dim]")
         return
     _ui.wiki_table(wikis)
     if any(not w.get("id") for w in wikis):
-        console.print("[dim]ID trống → chạy `llm-wiki wiki add` lại.[/dim]")
+        console.print("[dim]Empty ID → re-run `llm-wiki wiki add`.[/dim]")
     console.print()
-    console.print("AI tool dùng param `wiki=<name>` để target wiki cụ thể "
-                  "(accept cả `id`).")
-    console.print("Để trống `wiki=` để search cross-wiki (bao gồm personal wiki).")
-    console.print("[dim]Trùng name + khác path → init tự thêm hậu tố -<uuid8>, "
-                  "không đá nhau.[/dim]")
+    console.print("AI tools pass `wiki=<name>` to target one wiki "
+                  "(also accepts `id`).")
+    console.print("Leave `wiki=` empty to search cross-wiki (including personal wikis).")
+    console.print("[dim]Same name + different path → init auto-suffixes -<uuid8>, "
+                  "no eviction.[/dim]")
 
 
 @wiki_app.command("add")
 def wiki_add_cmd(
-    name: str = typer.Argument(..., help="Wiki name (dùng làm identifier trong MCP)."),
-    path: str = typer.Argument(..., help="Đường dẫn tuyệt đối tới wiki root."),
-    type: str = typer.Option("personal", "--type", "-t", help="personal hoặc project."),
+    name: str = typer.Argument(..., help="Wiki name (used as the identifier in MCP)."),
+    path: str = typer.Argument(..., help="Absolute path to the wiki root."),
+    type: str = typer.Option("personal", "--type", "-t", help="personal or project."),
 ) -> None:
-    """Đăng ký 1 wiki đã tồn tại vào centralized MCP registry.
+    """Register an existing wiki into the centralized MCP registry.
 
     Examples:
         llm-wiki wiki add notes /path/to/notes
@@ -398,32 +399,32 @@ def wiki_add_cmd(
     from llm_wiki.registry import add_wiki
     wiki_path = Path(path).resolve()
     if not wiki_path.exists():
-        _ui.err_panel(f"path không tồn tại: {wiki_path}", "llm-wiki wiki list")
+        _ui.err_panel(f"path does not exist: {wiki_path}", "llm-wiki wiki list")
         raise typer.Exit(1)
     used = add_wiki(name, str(wiki_path), wiki_type=type)
     if used != name:
-        console.print(f"[yellow]![/yellow] name '{name}' đã bị wiki khác chiếm "
-                      f"(khác path) → đăng ký là '{used}'")
+        console.print(f"[yellow]![/yellow] name '{name}' is taken by another wiki "
+                      f"(different path) → registered as '{used}'")
     console.print(f"[green]✓[/green] registered: '{used}' (type={type}) → {wiki_path}")
 
 
 @wiki_app.command("remove")
 def wiki_remove_cmd(
-    name: str = typer.Argument(..., help="Wiki name HOẶC id để xóa khỏi registry."),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirm."),
+    name: str = typer.Argument(..., help="Wiki name OR id to remove from the registry."),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation."),
 ) -> None:
-    """Xóa 1 wiki khỏi registry (không xóa files).
+    """Remove one wiki from the registry (files are kept).
 
     Examples:
         llm-wiki wiki remove notes
         llm-wiki wiki remove notes --force
     """
-    from llm_wiki.registry import remove_wiki, find
+    from llm_wiki.registry import find, remove_wiki
     if not find(name):
-        _ui.err_panel(f"wiki '{name}' không có trong registry", "llm-wiki wiki list")
+        _ui.err_panel(f"wiki '{name}' is not in the registry", "llm-wiki wiki list")
         raise typer.Exit(1)
     if not force:
-        if not Confirm.ask(f"Xóa '{name}' khỏi registry? (files không bị xóa)"):
+        if not Confirm.ask(f"Remove '{name}' from the registry? (files are kept)"):
             raise typer.Exit(0)
     if remove_wiki(name):
         console.print(f"[green]✓[/green] removed '{name}' from registry.")
@@ -439,14 +440,14 @@ def wiki_remove_cmd(
 def base_install(
     dir: Path = typer.Option(
         None, "--dir", "-d",
-        help="Target dir (default: ~/.llm-wiki-base). Override qua env LLM_WIKI_BASE_DIR.",
+        help="Target dir (default: ~/.llm-wiki-base). Override via LLM_WIKI_BASE_DIR env.",
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Recreate venv + reinstall requirements."),
 ) -> None:
-    """Install global llm-wiki-base runtime (tools/, rag/, scripts/, .venv/).
+    """Install the global llm-wiki-base runtime (tools/, rag/, scripts/, .venv/).
 
-    Chạy 1 lần sau khi `pip install llm-wiki`. Idempotent — chạy lại để sync
-    tools/rag/scripts mới nhất từ package, bao gồm centralized MCP server.
+    Run once after `pip install llm-wiki`. Idempotent — re-run to sync the
+    newest tools/rag/scripts from the package, including the centralized MCP server.
 
     Examples:
         llm-wiki setup tools
@@ -457,13 +458,13 @@ def base_install(
     _ui.done_panel("llm-wiki-base installed",
                    [f"at:     {base}", f"python: {get_base_python()}"])
     console.print()
-    console.print("Next: cd vào 1 folder trống rồi `llm-wiki setup personal` để tạo wiki data + MCP.")
+    console.print("Next: cd into an empty folder, then `llm-wiki setup personal` to create wiki data + MCP.")
 
 
 @config_app.command("path")
 @_alias_base_app.command("path", hidden=True)
 def base_path() -> None:
-    """In đường dẫn global base hiện tại (env override hoặc default).
+    """Print the current global base path (env override or default).
 
     Examples:
         llm-wiki config path
@@ -478,22 +479,22 @@ def base_path() -> None:
 
 def _run_base_tool(tool_name: str, args: list[str], wiki_root: Path,
                    capture: bool = False) -> tuple[int, str]:
-    """Chạy 1 script trong global base với context của wiki.
+    """Run one script from the global base in the wiki's context.
 
-    Trả (exit_code, stdout). `capture=False` → in thẳng ra console (hành vi cũ).
+    Returns (exit_code, stdout). `capture=False` → print straight to console (legacy).
 
-    Không để traceback của subprocess leaks lên user: `check_call` ném
-    CalledProcessError thô khi tool lỗi (kèm stack Python của CLI, không nói gì về
-    wiki). Ở đây ta truyền exit code của tool + chỉ dẫn bước tiếp theo.
+    Never leak subprocess tracebacks to the user: `check_call` throws a bare
+    CalledProcessError on tool failure (with the CLI's Python stack, saying nothing
+    about the wiki). Here we forward the tool's exit code + the next step hint.
     """
     base = get_base_dir()
     py = get_base_python()
     script = base / "tools" / tool_name
     if not script.exists():
-        _ui.err_panel(f"{script} không tồn tại.", "llm-wiki setup tools")
+        _ui.err_panel(f"{script} does not exist.", "llm-wiki setup tools")
         raise typer.Exit(1)
     if not Path(py).exists():
-        _ui.err_panel(f"thiếu python của base venv: {py}", "llm-wiki setup tools --force")
+        _ui.err_panel(f"missing base venv python: {py}", "llm-wiki setup tools --force")
         raise typer.Exit(1)
 
     env = os.environ.copy()
@@ -512,11 +513,11 @@ def _run_base_tool(tool_name: str, args: list[str], wiki_root: Path,
         return 0, ""
     except subprocess.CalledProcessError as e:
         _ui.err_panel(f"`llm-wiki {tool_name.replace('.py', '')}` "
-                      f"thất bại (exit {e.returncode}).",
+                      f"failed (exit {e.returncode}).",
                       "llm-wiki wiki reindex --check, then llm-wiki setup doctor")
         raise typer.Exit(e.returncode or 1)
     except FileNotFoundError:
-        _ui.err_panel(f"không chạy được {py} — base venv hỏng?",
+        _ui.err_panel(f"cannot run {py} — broken base venv?",
                       "llm-wiki setup tools --force")
         raise typer.Exit(1)
     except KeyboardInterrupt:
@@ -526,10 +527,11 @@ def _run_base_tool(tool_name: str, args: list[str], wiki_root: Path,
 @wiki_app.command("ingest")
 @app.command("ingest", hidden=True)
 def ingest_cmd(
-    path: str = typer.Argument(..., help="Source path relative to wiki root (vd: raw/inbox/foo.md)."),
+    path: str = typer.Argument(..., help="Source path relative to the wiki root (e.g. raw/inbox/foo.md)."),
     root: Path = typer.Option(Path.cwd(), "--root", "-r", help="Wiki root (default: cwd)."),
 ) -> None:
-    """Ingest 1 source vào search DB. Chạy từ trong wiki dir.
+    """Index one source into the search DB. Does NOT write a wiki page — that is
+    the ingest skill's job. Run from inside the wiki dir.
 
     Examples:
         llm-wiki wiki ingest raw/inbox/foo.md
@@ -543,11 +545,11 @@ def ingest_cmd(
 @wiki_app.command("reindex")
 @app.command("reindex", hidden=True)
 def reindex_cmd(
-    full: bool = typer.Option(False, "--full", help="Rebuild toàn bộ từ đầu (bỏ qua content-hash). Bắt buộc sau khi đổi embed_model/chunk_tokens/vector."),
-    check: bool = typer.Option(False, "--check", help="Dry-run: báo sẽ index/xoá gì + config drift, KHÔNG ghi."),
+    full: bool = typer.Option(False, "--full", help="Rebuild from scratch (ignore content-hash). Required after changing embed_model/chunk_tokens/vector."),
+    check: bool = typer.Option(False, "--check", help="Dry-run: report what would index/delete + config drift, write NOTHING."),
     root: Path = typer.Option(Path.cwd(), "--root", "-r", help="Wiki root (default: cwd)."),
 ) -> None:
-    """Rebuild search DB + RAG index. Mặc định tăng dần theo content-hash.
+    """Rebuild the search DB + RAG index. Incremental by content-hash by default.
 
     Examples:
         llm-wiki wiki reindex
@@ -565,7 +567,7 @@ def reindex_cmd(
 @check_app.command("lint")
 @app.command("lint", hidden=True)
 def lint_cmd(
-    fix: bool = typer.Option(False, "--fix", help="Sửa an toàn: xoá dangling rows + thêm index entry còn thiếu."),
+    fix: bool = typer.Option(False, "--fix", help="Safe fixes: drop dangling rows + add missing index entries."),
     root: Path = typer.Option(Path.cwd(), "--root", "-r", help="Wiki root (default: cwd)."),
 ) -> None:
     """Health-check wiki: orphan, broken link, missing file, stale claim.
@@ -583,17 +585,17 @@ def lint_cmd(
 @check_app.command("eval")
 @app.command("eval", hidden=True)
 def eval_cmd(
-    k: int = typer.Option(0, "--k", help="Cutoff metric (mặc định: [eval].k, rồi top_n_final)."),
-    compare: bool = typer.Option(False, "--compare", help="So sánh profile tier1-weighted / rrf-text / rrf+vector."),
-    as_json: bool = typer.Option(False, "--json", help="In JSON thay vì bảng."),
-    init: bool = typer.Option(False, "--init", help="Tạo eval/golden.toml từ template."),
-    no_save: bool = typer.Option(False, "--no-save", help="Không append vào eval/results.json."),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="In số liệu từng query."),
+    k: int = typer.Option(0, "--k", help="Metric cutoff (default: [eval].k, then top_n_final)."),
+    compare: bool = typer.Option(False, "--compare", help="Compare profiles: tier1-weighted / rrf-text / rrf+vector."),
+    as_json: bool = typer.Option(False, "--json", help="Print JSON instead of a table."),
+    init: bool = typer.Option(False, "--init", help="Create eval/golden.toml from the template."),
+    no_save: bool = typer.Option(False, "--no-save", help="Do not append to eval/results.json."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Print per-query numbers."),
     root: Path = typer.Option(Path.cwd(), "--root", "-r", help="Wiki root (default: cwd)."),
 ) -> None:
-    """Đo chất lượng retrieval trên bộ query vàng (P@k / R@k / MRR).
+    """Measure retrieval quality on the golden query set (P@k / R@k / MRR).
 
-    Read-only với wiki: không sửa markdown, không ghi wiki/log.md.
+    Read-only on the wiki: never edits markdown, never writes wiki/log.md.
 
     Examples:
         llm-wiki check eval
@@ -620,7 +622,7 @@ def eval_cmd(
 def watch_cmd(
     root: Path = typer.Option(Path.cwd(), "--root", "-r", help="Wiki root (default: cwd)."),
 ) -> None:
-    """Daemon: scan raw/inbox/ → ingest → reindex → lint. Chạy từ trong wiki dir.
+    """Daemon: scan raw/inbox/ → ingest → reindex → lint. Run from inside the wiki dir.
 
     Examples:
         llm-wiki watch
@@ -631,19 +633,19 @@ def watch_cmd(
 
 @_tail_app.command("serve")
 def serve_cmd(
-    mcp: bool = typer.Option(False, "--mcp", help="Chạy centralized MCP server (stdio)."),
+    mcp: bool = typer.Option(False, "--mcp", help="Run the centralized MCP server (stdio)."),
 ) -> None:
-    """Chạy MCP server cho AI tool — tương đương `llm-wiki serve --mcp`.
+    """Run the MCP server for AI tools — same as `llm-wiki serve --mcp`.
 
-    Exec base python + tools/mcp_base_server.py (giữ đúng venv có mcp/fastembed,
-    stdio pass-through cho JSON-RPC). Entry MCP trong file per-project wiki
-    trỏ vào lệnh này: ["llm-wiki", "serve", "--mcp"].
+    Execs the base python + tools/mcp_base_server.py (keeps the venv that has
+    stdio pass-through for JSON-RPC). The MCP entry in the per-project wiki file
+    points at this command: ["llm-wiki", "serve", "--mcp"].
 
     Examples:
         llm-wiki serve --mcp
     """
     if not mcp:
-        _ui.err_panel("`llm-wiki serve` cần flag --mcp (stdio MCP server cho AI tool).",
+        _ui.err_panel("`llm-wiki serve` needs flag --mcp (stdio MCP server for AI tools).",
                       "llm-wiki serve --mcp")
         raise typer.Exit(2)
     from llm_wiki.installer import CENTRALIZED_SERVER_SCRIPT
@@ -651,10 +653,10 @@ def serve_cmd(
     script = base / "tools" / CENTRALIZED_SERVER_SCRIPT
     py = get_base_python()
     if not script.exists():
-        _ui.err_panel(f"{script} không tồn tại.", "llm-wiki setup tools")
+        _ui.err_panel(f"{script} does not exist.", "llm-wiki setup tools")
         raise typer.Exit(1)
     if not Path(py).exists():
-        _ui.err_panel(f"thiếu python của base venv: {py}", "llm-wiki setup tools --force")
+        _ui.err_panel(f"missing base venv python: {py}", "llm-wiki setup tools --force")
         raise typer.Exit(1)
     env = os.environ.copy()
     env.setdefault("LLM_WIKI_BASE_DIR", str(base))
@@ -670,17 +672,17 @@ def serve_cmd(
 def translate_enable(
     lang: list[str] = typer.Option(
         ..., "--lang", "-l",
-        help="Target language code (vd: vi, ja, fr). Có thể truyền nhiều lần: -l vi -l ja.",
+        help="Target language code (e.g. vi, ja, fr). Repeatable: -l vi -l ja.",
     ),
     root: Path = typer.Option(
         Path(os.environ.get("WIKI_ROOT", ".")), "--root",
-        help="Wiki root (mặc định $WIKI_ROOT hoặc cwd).",
+        help="Wiki root (default: $WIKI_ROOT or cwd).",
     ),
 ) -> None:
-    """Enable auto-translation. Ghi target langs vào `.llm-wiki.toml` ở wiki root.
+    """Enable auto-translation. Writes target langs to `.llm-wiki.toml` at the wiki root.
 
-    Sau khi enable, ingest skill sẽ tự gọi `llm-wiki-translate` skill để dịch mỗi
-    source mới sang các target langs (dùng LLM của AI tool đang chạy).
+    After enabling, the ingest skill auto-calls the `llm-wiki-translate` skill to
+    translate each new source into the target langs (using the running AI tool's LLM).
 
     Examples:
         llm-wiki translate enable --lang vi
@@ -689,20 +691,20 @@ def translate_enable(
     from llm_wiki.config_file import set_translate
     p = set_translate(root, enabled=True, langs=lang)
     console.print(f"[green]✓[/green] enabled → {', '.join(sorted(set(lang)))}")
-    console.print(f"  ghi vào: {p}")
+    console.print(f"  written to: {p}")
     console.print()
-    console.print("Ingest từ giờ sẽ tự tạo <slug>.<lang>.md cho mỗi page mới.")
-    console.print("Bản dịch KHÔNG vào DB/RAG (skip rule *.lang.md).")
+    console.print("From now on, ingest auto-creates <slug>.<lang>.md for each new page.")
+    console.print("Translations do NOT enter the DB/RAG (skip rule *.lang.md).")
 
 
 @translate_app.command("disable")
 def translate_disable(
     root: Path = typer.Option(
         Path(os.environ.get("WIKI_ROOT", ".")), "--root",
-        help="Wiki root (mặc định $WIKI_ROOT hoặc cwd).",
+        help="Wiki root (default: $WIKI_ROOT or cwd).",
     ),
 ) -> None:
-    """Disable auto-translation. Giữ list langs để enable lại sau.
+    """Disable auto-translation. Keeps the lang list for re-enabling later.
 
     Examples:
         llm-wiki translate disable
@@ -711,7 +713,7 @@ def translate_disable(
     _, langs = get_translate_config(root)
     set_translate(root, enabled=False, langs=langs)
     if langs:
-        console.print(f"[green]✓[/green] disabled (langs vẫn lưu: {langs}). Dùng `llm-wiki translate enable` để bật lại.")
+        console.print(f"[green]✓[/green] disabled (langs kept: {langs}). Re-enable with `llm-wiki translate enable`.")
     else:
         console.print("[green]✓[/green] disabled.")
 
@@ -720,10 +722,10 @@ def translate_disable(
 def translate_status(
     root: Path = typer.Option(
         Path(os.environ.get("WIKI_ROOT", ".")), "--root",
-        help="Wiki root (mặc định $WIKI_ROOT hoặc cwd).",
+        help="Wiki root (default: $WIKI_ROOT or cwd).",
     ),
 ) -> None:
-    """In trạng thái auto-translation hiện tại.
+    """Print the current auto-translation status.
 
     Examples:
         llm-wiki translate status
@@ -737,15 +739,15 @@ def translate_status(
 
 @translate_app.command("check")
 def translate_check(
-    lang: str = typer.Option(..., "--lang", "-l", help="Language code cần verify."),
+    lang: str = typer.Option(..., "--lang", "-l", help="Language code to verify."),
     root: Path = typer.Option(
         Path(os.environ.get("WIKI_ROOT", ".")), "--root",
-        help="Wiki root (mặc định $WIKI_ROOT hoặc cwd).",
+        help="Wiki root (default: $WIKI_ROOT or cwd).",
     ),
 ) -> None:
-    """Verify mỗi <slug>.md có matching <slug>.<lang>.md với cùng frontmatter keys + heading structure.
+    """Verify every <slug>.md has a matching <slug>.<lang>.md with the same frontmatter keys + heading structure.
 
-    Không cần LLM — chỉ đọc file + so sánh structure.
+    Needs no LLM — only reads files + compares structure.
 
     Examples:
         llm-wiki translate check --lang vi
@@ -773,7 +775,7 @@ _ENV_KEYS: dict[tuple[str, ...], str] = {
 
 # Env luôn là string; cast theo kiểu của builtin default để in ĐÚNG giá trị
 # hiệu lực (không chỉ dán nhãn [env ...] rồi in giá trị TOML/default).
-_ENV_CAST = {
+_ENV_CAST: dict[str, Callable[[str], object]] = {
     "WIKI_BM25_WEIGHT": float,
     "WIKI_VEC_WEIGHT": float,
     "WIKI_CHUNK_BM25": lambda s: s.strip().lower() not in ("0", "false", "no", "off"),
@@ -781,7 +783,7 @@ _ENV_CAST = {
 
 
 def _env_effective(env_name: str, current):
-    """Giá trị thực sự được dùng khi env này đang set (mô phỏng config_file.effective)."""
+    """The effective value when this env is set (mirrors config_file.effective)."""
     raw = os.environ.get(env_name)
     if raw is None or raw == "":
         return current, False
@@ -791,13 +793,13 @@ def _env_effective(env_name: str, current):
     try:
         return cast(raw), True
     except (ValueError, AttributeError):
-        return f"{raw} (không parse được)", True
+        return f"{raw} (unparsable)", True
 
 
 def _collect_config(cfg: dict, raw: dict, prefix: str = "") -> list[tuple]:
-    """Flatten effective config thành rows cho `_ui.config_table`.
+    """Flatten the effective config into rows for `_ui.config_table`.
 
-    Row ("section", name) hoặc ("row", path, value_repr, source_label, source_style).
+    Row ("section", name) or ("row", path, value_repr, source_label, source_style).
     """
     rows: list[tuple] = []
     for k, v in cfg.items():
@@ -825,12 +827,12 @@ def _collect_config(cfg: dict, raw: dict, prefix: str = "") -> list[tuple]:
 def config_show(
     root: Path = typer.Option(
         Path(os.environ.get("WIKI_ROOT", ".")), "--root",
-        help="Wiki root (mặc định $WIKI_ROOT hoặc cwd).",
+        help="Wiki root (default: $WIKI_ROOT or cwd).",
     ),
 ) -> None:
-    """In effective config: builtin defaults + .llm-wiki.toml + env override.
+    """Print the effective config: builtin defaults + .llm-wiki.toml + env overrides.
 
-    Mỗi dòng đánh dấu nguồn: [default] / [toml] / [env ...].
+    Each line is tagged with its source: [default] / [toml] / [env ...].
 
     Examples:
         llm-wiki config show
@@ -840,10 +842,10 @@ def config_show(
     cfg = get_config(root)
     raw = load(root)
     if not raw:
-        console.print("[dim](.llm-wiki.toml không tồn tại — dùng toàn bộ defaults)[/dim]\n")
+        console.print("[dim](no .llm-wiki.toml — using all defaults)[/dim]\n")
     _ui.config_table(_collect_config(cfg, raw))
     console.print()
-    console.print("Đổi giá trị: sửa [cyan].llm-wiki.toml[/cyan] ở wiki root (env var override khi set).")
+    console.print("To change a value: edit [cyan].llm-wiki.toml[/cyan] at the wiki root (env vars override when set).")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -854,25 +856,25 @@ def config_show(
 @check_app.command("verify")
 @app.command("verify", hidden=True)
 def verify_cmd(
-    path: str = typer.Argument(..., help="Page path relative to wiki root (vd: wiki/tech/concept/x.md)."),
-    by: str | None = typer.Option(None, "--by", "-b", help="Human id duyệt (vd: nihmtaho). Bắt buộc khi set (không cần cho --unverify). Lưu dạng human:<id>."),
-    unverify: bool = typer.Option(False, "--unverify", help="Xoá field verified (hạ về unverified)."),
+    path: str = typer.Argument(..., help="Page path relative to the wiki root (e.g. wiki/tech/concept/x.md)."),
+    by: str | None = typer.Option(None, "--by", "-b", help="Reviewing human id (e.g. nihmtaho). Required when setting (not for --unverify). Stored as human:<id>."),
+    unverify: bool = typer.Option(False, "--unverify", help="Drop the verified field (back to unverified)."),
     root: Path = typer.Option(
         Path(os.environ.get("WIKI_ROOT", ".")), "--root",
-        help="Wiki root (mặc định $WIKI_ROOT hoặc cwd).",
+        help="Wiki root (default: $WIKI_ROOT or cwd).",
     ),
 ) -> None:
-    """Human duyệt artifact: set/clear `verified` trong frontmatter page.
+    """Human reviews an artifact: set/clear `verified` in the page frontmatter.
 
-    Duyệt = set verified → trust tier *human-reviewed*. Cùng cơ chế cho
-    personal + project wiki. Không LLM — deterministic frontmatter edit.
+    Review = set verified → trust tier *human-reviewed*. Same mechanism for
+    personal + project wikis. No LLM — deterministic frontmatter edit.
 
     Examples:
         llm-wiki check verify wiki/tech/concept/x.md --by nihmtaho
         llm-wiki check verify wiki/tech/concept/x.md --unverify
     """
     if not unverify and not by:
-        _ui.err_panel("thiếu --by (human id duyệt). Dùng --unverify để xoá verified.",
+        _ui.err_panel("missing --by (reviewing human id). Use --unverify to drop verified.",
                       "llm-wiki check verify <path> --by <id>")
         raise typer.Exit(1)
     from llm_wiki import verify as verify_mod
@@ -881,7 +883,7 @@ def verify_cmd(
             p = verify_mod.unverify(root, path)
             console.print(f"[green]✓[/green] unverified → {p}")
         else:
-            p = verify_mod.set_verified(root, path, by)
+            p = verify_mod.set_verified(root, path, by or "")
             console.print(f"[green]✓[/green] verified (human-reviewed) → {p}")
     except (ValueError, FileNotFoundError) as e:
         _ui.err_panel(f"{e}", "llm-wiki check verify --help")
@@ -898,9 +900,9 @@ def verify_cmd(
 def proposals_list(
     root: Path = typer.Option(
         Path(os.environ.get("WIKI_ROOT", ".")), "--root",
-        help="Wiki root (mặc định $WIKI_ROOT hoặc cwd)."),
+        help="Wiki root (default: $WIKI_ROOT or cwd)."),
 ) -> None:
-    """Liệt kê đề xuất đang chờ duyệt + độ lớn diff so với page hiện tại.
+    """List pending proposals + diff size against the current pages.
 
     Examples:
         llm-wiki review list
@@ -911,13 +913,13 @@ def proposals_list(
 @review_app.command("show")
 @_alias_proposals_app.command("show", hidden=True)
 def proposals_show(
-    name: str = typer.Argument(..., help="Tên proposal (hoặc một phần, nếu duy nhất)."),
-    context: int = typer.Option(3, "--context", "-C", help="Số dòng ngữ cảnh quanh diff."),
+    name: str = typer.Argument(..., help="Proposal name (or a unique substring)."),
+    context: int = typer.Option(3, "--context", "-C", help="Context lines around the diff."),
     root: Path = typer.Option(
         Path(os.environ.get("WIKI_ROOT", ".")), "--root",
-        help="Wiki root (mặc định $WIKI_ROOT hoặc cwd)."),
+        help="Wiki root (default: $WIKI_ROOT or cwd)."),
 ) -> None:
-    """In metadata + unified diff của proposal so với page đích hiện tại.
+    """Print a proposal's metadata + unified diff against its current target page.
 
     Examples:
         llm-wiki review show my-proposal
@@ -927,10 +929,10 @@ def proposals_show(
 
 
 def parse_apply_output(out: str, target: str | None) -> str | None:
-    """Trích path đích từ output của `proposals.py apply`.
+    """Extract the target path from `proposals.py apply` output.
 
-    Ưu tiên: `--target` tường minh → dòng JSON `RESULT {...}` (contract mới) →
-    dòng legacy `APPLIED\\t<rel>`. Trả None khi không đọc được.
+    Precedence: explicit `--target` → JSON `RESULT {...}` line (new contract) →
+    legacy `APPLIED\\t<rel>` line. Returns None when unreadable.
     """
     import json as _json
     import re as _re
@@ -953,19 +955,19 @@ def parse_apply_output(out: str, target: str | None) -> str | None:
 @review_app.command("apply")
 @_alias_proposals_app.command("apply", hidden=True)
 def proposals_apply(
-    name: str = typer.Argument(..., help="Tên proposal."),
+    name: str = typer.Argument(..., help="Proposal name."),
     target: str | None = typer.Option(
-        None, "--target", help="Ép path đích (chỉ cần cho proposal cũ không có metadata)."),
+        None, "--target", help="Force the target path (only needed for legacy proposals without metadata)."),
     by: str | None = typer.Option(
-        None, "--by", "-b", help="Human id — nếu đưa, page được set `verified` sau khi apply."),
+        None, "--by", "-b", help="Human id — when given, the page is set `verified` after apply."),
     root: Path = typer.Option(
         Path(os.environ.get("WIKI_ROOT", ".")), "--root",
-        help="Wiki root (mặc định $WIKI_ROOT hoặc cwd)."),
+        help="Wiki root (default: $WIKI_ROOT or cwd)."),
 ) -> None:
-    """Chấp nhận 1 proposal: ghi vào page đích + log + reindex + xoá proposal.
+    """Accept one proposal: write to the target page + log + reindex + delete the proposal.
 
-    `--by <id>` là chữ ký của BẠN (trust tier human-reviewed) — không truyền thì
-    page vẫn unverified và bạn duyệt sau bằng `llm-wiki check verify`.
+    `--by <id>` is YOUR signature (trust tier human-reviewed) — without it the
+    page stays unverified and you review later with `llm-wiki check verify`.
 
     Examples:
         llm-wiki review apply my-proposal
@@ -983,7 +985,7 @@ def proposals_apply(
     # file — CLI cần target SAU khi proposal đã không còn trên đĩa.
     applied = parse_apply_output(out, target)
     if not applied:
-        console.print("[yellow]![/yellow] không đọc được path đích từ output — tự duyệt: "
+        console.print("[yellow]![/yellow] cannot read the target path from output — review manually: "
                       f"`llm-wiki check verify <path> --by {by}`")
         return
     from llm_wiki import verify as verify_mod
@@ -991,24 +993,24 @@ def proposals_apply(
         p = verify_mod.set_verified(root, applied, by)
         console.print(f"[green]✓[/green] verified (human-reviewed) → {p}")
     except (ValueError, FileNotFoundError) as e:
-        console.print(f"[yellow]![/yellow] apply OK nhưng không set verified được: {e}")
-        console.print(f"  Tự chạy: llm-wiki check verify <path> --by {by}")
+        console.print(f"[yellow]![/yellow] applied OK but could not set verified: {e}")
+        console.print(f"  Run manually: llm-wiki check verify <path> --by {by}")
 
 
 @review_app.command("new")
 @_alias_proposals_app.command("new", hidden=True)
 def proposals_new(
     target: str = typer.Option(..., "--target", "-t",
-                               help="Page đích tương đối trong wiki (vd wiki/<domain>/concept/x.md)."),
+                               help="Target page, relative inside the wiki (e.g. wiki/<domain>/concept/x.md)."),
     file: str = typer.Option("-", "--file", "-f",
-                             help="File chứa nội dung đề xuất; '-' = đọc từ stdin."),
-    by: str = typer.Option("", "--by", help="Ai đề xuất (tool/client) — ghi vào metadata."),
-    note: str = typer.Option("", "--note", help="Lý do đề xuất, hiển thị trong `show`."),
+                             help="File holding the proposed content; '-' = read from stdin."),
+    by: str = typer.Option("", "--by", help="Who proposed it (tool/client) — stored in metadata."),
+    note: str = typer.Option("", "--note", help="Reason for the proposal, shown in `show`."),
     root: Path = typer.Option(
         Path(os.environ.get("WIKI_ROOT", ".")), "--root",
-        help="Wiki root (mặc định $WIKI_ROOT hoặc cwd)."),
+        help="Wiki root (default: $WIKI_ROOT or cwd)."),
 ) -> None:
-    """Tạo 1 proposal STAGING (không sửa page). Cùng format MCP `wiki_propose_edit`.
+    """Create one STAGING proposal (touches no page). Same format as MCP `wiki_propose_edit`.
 
     Examples:
         echo "new content" | llm-wiki review new --target wiki/tech/concept/x.md
@@ -1021,13 +1023,13 @@ def proposals_new(
 @review_app.command("discard")
 @_alias_proposals_app.command("discard", hidden=True)
 def proposals_discard(
-    name: str = typer.Argument(..., help="Tên proposal."),
-    force: bool = typer.Option(False, "--force", "-f", help="Xác nhận xoá."),
+    name: str = typer.Argument(..., help="Proposal name."),
+    force: bool = typer.Option(False, "--force", "-f", help="Confirm deletion."),
     root: Path = typer.Option(
         Path(os.environ.get("WIKI_ROOT", ".")), "--root",
-        help="Wiki root (mặc định $WIKI_ROOT hoặc cwd)."),
+        help="Wiki root (default: $WIKI_ROOT or cwd)."),
 ) -> None:
-    """Từ bỏ 1 proposal (xoá file, không ghi gì vào wiki).
+    """Abandon one proposal (delete the file, write nothing to the wiki).
 
     Examples:
         llm-wiki review discard my-proposal --force
@@ -1044,16 +1046,16 @@ def proposals_discard(
 
 
 _SKILL_LAYER = [
-    ("ingest ra wiki page", "llm-wiki-ingest",
-     "`llm-wiki wiki ingest` chỉ INDEX 1 file vào DB; người VIẾT page là skill."),
-    ("trả lời câu hỏi + rerank", "llm-wiki-query",
-     "retrieval là MCP/CLI, nhưng chấm ứng viên và tổng hợp trả lời là LLM của AI tool."),
-    ("review ngữ nghĩa (mâu thuẫn, stale)", "llm-wiki-review",
-     "`llm-wiki check lint` chỉ kiểm cấu trúc tất định."),
-    ("consolidate / gộp concept", "llm-wiki-consolidate", "additive merge + distill-verify."),
-    ("dịch page", "llm-wiki-translate",
-     "`llm-wiki translate enable` chỉ ghi config; bản dịch do skill tạo."),
-    ("research xuyên wiki", "llm-wiki-research", "cài ở root codebase, không nằm trong wiki."),
+    ("ingest into wiki pages", "llm-wiki-ingest",
+     "`llm-wiki wiki ingest` only INDEXES 1 file into the DB; the skill WRITES the page."),
+    ("answer questions + rerank", "llm-wiki-query",
+     "retrieval is MCP/CLI, but candidate scoring and answer synthesis need the AI tool's LLM."),
+    ("semantic review (contradictions, stale)", "llm-wiki-review",
+     "`llm-wiki check lint` only checks deterministic structure."),
+    ("consolidate / merge concepts", "llm-wiki-consolidate", "additive merge + distill-verify."),
+    ("translate pages", "llm-wiki-translate",
+     "`llm-wiki translate enable` only writes config; the skill creates translations."),
+    ("cross-wiki research", "llm-wiki-research", "installed at the codebase root, not inside a wiki."),
 ]
 
 
@@ -1062,12 +1064,12 @@ _SKILL_LAYER = [
 def doctor_cmd(
     root: Path = typer.Option(
         Path(os.environ.get("WIKI_ROOT", ".")), "--root",
-        help="Wiki root cần kiểm (mặc định $WIKI_ROOT hoặc cwd)."),
+        help="Wiki root to check (default: $WIKI_ROOT or cwd)."),
 ) -> None:
-    """Kiểm tra môi trường: base runtime, tools lệch, deps, registry, wiki hiện tại.
+    """Check the environment: base runtime, drifted tools, deps, registry, current wiki.
 
-    Báo rõ phần nào FAIL (chặn dùng), phần nào WARN (chạy được nhưng mất tính năng),
-    và ranh giới CLI-vs-skill (việc gì bắt buộc phải có AI tool).
+    Reports what FAILS (blocks usage), what WARNS (works with missing features),
+    and the CLI-vs-skill boundary (what strictly needs an AI tool).
 
     Examples:
         llm-wiki setup doctor
@@ -1089,13 +1091,19 @@ def doctor_cmd(
         fails.append(msg)
         console.print(f"  [red]✗[/red] {msg}")
 
-    _ui.section("Môi trường")
+    _ui.section("Environment")
     if base.exists():
         ok(f"base runtime: {base}")
     else:
-        fail(f"base runtime chưa cài: {base} → chạy `llm-wiki setup tools`")
+        fail(f"base runtime not installed: {base} → run `llm-wiki setup tools`")
     py = get_base_python()
-    ok(f"base python: {py}") if py.exists() else fail(f"thiếu venv python: {py} → `llm-wiki setup tools --force`")
+    ok(f"base python: {py}") if py.exists() else fail(f"missing base venv python: {py} → `llm-wiki setup tools --force`")
+    on_path = shutil.which("llm-wiki")
+    if on_path:
+        ok(f"llm-wiki on PATH: {on_path}")
+    else:
+        warn("`llm-wiki` not on PATH (it lives in the install venv's bin/) → symlink it "
+             "into /usr/local/bin or export PATH; see README “Making `llm-wiki` available globally”")
 
     src_tools = package_path("base_tools")
     if src_tools.is_dir() and (base / "tools").is_dir():
@@ -1103,10 +1111,10 @@ def doctor_cmd(
                        if not (base / "tools" / f.name).exists()
                        or (base / "tools" / f.name).read_bytes() != f.read_bytes())
         if stale:
-            warn(f"tools/ trong base LỆCH với package ({len(stale)} file) → chạy "
+            warn(f"base tools/ DRIFTED from the package ({len(stale)} files) → run "
                  f"`llm-wiki setup tools`: {', '.join(stale[:6])}")
         else:
-            ok("tools/ đồng bộ với package")
+            ok("tools/ in sync with the package")
 
     _ui.section("Dependencies (base venv)")
     # tomli CHỈ cần khi base venv là Python <3.11 (từ 3.11 có tomllib trong stdlib).
@@ -1115,12 +1123,12 @@ def doctor_cmd(
         py311 = subprocess.run(
             [str(py), "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)"],
             capture_output=True).returncode == 0
-    checks = [("mcp", "MCP servers cần package này"),
-              ("fastembed", "kênh vector cần nó (bỏ được nếu vector=false)")]
+    checks = [("mcp", "MCP servers need this package"),
+              ("fastembed", "the vector channel needs it (skippable when vector=false)")]
     if py311:
-        ok("tomllib (stdlib Python ≥3.11)")
+        ok("tomllib (Python ≥3.11 stdlib)")
     else:
-        checks.append(("tomli", "Python <3.11 cần để đọc .llm-wiki.toml"))
+        checks.append(("tomli", "Python <3.11 needs it to read .llm-wiki.toml"))
     for mod, why in checks:
         if not py.exists():
             break
@@ -1128,54 +1136,54 @@ def doctor_cmd(
         if r.returncode == 0:
             ok(f"{mod}")
         elif mod == "fastembed":
-            warn("fastembed thiếu → kênh vector chết, `eval --compare` sẽ báo [ERROR]")
+            warn("fastembed missing → vector channel is off, `eval --compare` will report [ERROR]")
         else:
-            fail(f"{mod} thiếu → `pip install -r {base}/requirements.txt` trong base venv ({why})")
+            fail(f"{mod} missing → `pip install -r {base}/requirements.txt` in the base venv ({why})")
 
     _ui.section("Registry")
     from llm_wiki.registry import list_wikis
     wikis = list_wikis()
-    ok(f"{len(wikis)} wiki đã đăng ký") if wikis else warn(
-        "registry rỗng → MCP không thấy wiki nào; chạy `llm-wiki setup`")
+    ok(f"{len(wikis)} wikis registered") if wikis else warn(
+        "registry is empty → MCP sees no wikis; run `llm-wiki setup`")
     for w in wikis:
         if not Path(w.get("path", "")).exists():
-            fail(f"'{w.get('name')}' trỏ tới path không còn tồn tại: {w.get('path')} "
+            fail(f"'{w.get('name')}' points at a path that no longer exists: {w.get('path')} "
                  f"→ `llm-wiki wiki remove {w.get('name')}`")
         if not w.get("id"):
-            warn(f"'{w.get('name')}' chưa có id (UUID) — thêm lại bằng `llm-wiki wiki add`")
+            warn(f"'{w.get('name')}' has no id (UUID) — re-add it with `llm-wiki wiki add`")
 
-    _ui.section("Wiki hiện tại")
+    _ui.section("Current wiki")
     cfg = root / ".llm-wiki.toml"
     if cfg.is_file():
         ok(f".llm-wiki.toml: {cfg}")
         from llm_wiki.config_file import load as load_cfg
         prof = (load_cfg(root).get("wiki") or {}).get("profile")
         ok(f"\\[wiki].profile = {prof}") if prof else warn(
-            "thiếu \\[wiki].profile → skill không biết đang ở chế độ nào; chạy lại "
-            "`llm-wiki setup personal|project` (nó idempotent)")
+            "missing \\[wiki].profile → skills cannot tell which mode this is; re-run "
+            "`llm-wiki setup personal|project` (it is idempotent)")
     else:
-        warn(f"không có .llm-wiki.toml ở {root} (dùng defaults; đây có phải wiki root?)")
+        warn(f"no .llm-wiki.toml at {root} (using defaults; is this the wiki root?)")
     if wikis and not any(Path(w.get("path", "")).resolve() == Path(root).resolve()
                          for w in wikis):
-        warn(f"{root} CHƯA đăng ký trong registry → MCP không tìm thấy nó qua `wiki=`")
+        warn(f"{root} is NOT in the registry → MCP cannot find it via `wiki=`")
     props = list((root / "wiki" / ".proposals").glob("*")) if (root / "wiki" / ".proposals").is_dir() else []
     props = [p for p in props if p.is_file() and not p.name.startswith(".")]
     if props:
-        warn(f"{len(props)} proposal đang chờ duyệt → `llm-wiki review list`")
+        warn(f"{len(props)} proposals awaiting review → `llm-wiki review list`")
     else:
-        ok("không có proposal tồn đọng")
+        ok("no pending proposals")
 
-    _ui.section("Việc cần AI tool (CLI không tự làm)")
-    console.print("  llm-wiki KHÔNG gọi LLM. Các bước sinh nội dung chạy bằng LLM của")
-    console.print("  AI tool đang mở, qua skill đã cài ở .agents/skills/:")
+    _ui.section("Needs an AI tool (CLI cannot do this)")
+    console.print("  llm-wiki never calls an LLM. Content-generating steps run on the")
+    console.print("  open AI tool's LLM, via skills installed at .agents/skills/:")
     _ui.skill_table(_SKILL_LAYER)
 
     if fails:
-        _ui.done_panel(f"doctor: {len(fails)} lỗi, {len(warns)} cảnh báo",
+        _ui.done_panel(f"doctor: {len(fails)} errors, {len(warns)} warnings",
                        [f"[red]✗[/red] {m}" for m in fails], ok_style=False)
         raise typer.Exit(1)
-    _ui.done_panel(f"doctor: OK" + (f" — {len(warns)} cảnh báo" if warns else ""),
-                   [f"[yellow]![/yellow] {m}" for m in warns] or ["Không có lỗi."])
+    _ui.done_panel("doctor: OK" + (f" — {len(warns)} warnings" if warns else ""),
+                   [f"[yellow]![/yellow] {m}" for m in warns] or ["No errors."])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1195,13 +1203,13 @@ def _upgrade_root_suffix(r: dict, dry_run: bool) -> str:
 
 @app.command("upgrade")
 def upgrade_cmd(
-    to: str = typer.Option("latest", "--to", help="Tag đích (vX.Y.Z) hoặc 'latest'."),
-    wiki: str | None = typer.Option(None, "--wiki", help="Chỉ upgrade wiki này (name hoặc id)."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Chỉ hiện thay đổi, không chép."),
+    to: str = typer.Option("latest", "--to", help="Target tag (vX.Y.Z) or 'latest'."),
+    wiki: str | None = typer.Option(None, "--wiki", help="Upgrade only this wiki (name or id)."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show changes only, copy nothing."),
 ) -> None:
-    """Upgrade skills + agent configs của wikis trong registry lên tag mới.
+    """Upgrade wikis' skills + agent configs in the registry to a new tag.
 
-    Wiki loại `project` còn được sync skill `codebase` ở project root.
+    `project` wikis also get the `codebase` skill re-synced at the project root.
 
     Examples:
         llm-wiki upgrade --dry-run
@@ -1212,63 +1220,64 @@ def upgrade_cmd(
 
     core = _upgrade.find_core()
     if core is None:
-        _ui.err_panel("Không tìm thấy checkout core (.git).",
-                      "Chạy trong repo llm-wiki-base hoặc cài core từ git.")
+        _ui.err_panel("No core checkout found (.git).",
+                      "Run inside the llm-wiki-base repo or install core from git.")
         raise typer.Exit(2)
     tag = _upgrade.resolve_target(core, to)
     if tag is None:
-        _ui.err_panel(f"Không resolve được tag '{to}'.",
+        _ui.err_panel(f"Cannot resolve tag '{to}'.",
                       f"git -C {core} fetch --tags origin (offline?), "
-                      "hoặc tag sai quy ước vX.Y.Z.")
+                      "or the tag breaks the vX.Y.Z convention.")
         raise typer.Exit(1)
     if not dry_run and _upgrade.core_tag(core) != tag:
-        _ui.err_panel(f"Core không ở {tag} — file mới lấy từ core đang chạy.",
+        _ui.err_panel(f"Core is not at {tag} — new files come from the running core.",
                       f"git -C {core} fetch --tags && git -C {core} checkout {tag} "
-                      "(+ cài lại package nếu không dùng pip install -e .)")
+                      "(+ reinstall the package unless using pip install -e .)")
         raise typer.Exit(1)
     result = _upgrade.upgrade_all(core, tag, wiki_name=wiki, dry_run=dry_run)
     if result["unknown"]:
-        _ui.err_panel(f"Không thấy wiki '{wiki}' trong registry.", "llm-wiki wiki list")
+        _ui.err_panel(f"No wiki '{wiki}' in the registry.", "llm-wiki wiki list")
         raise typer.Exit(1)
     if dry_run:
         rows = []
         for r in result["done"]:
             changed = r["changed"]
             if changed is None:
-                detail = "re-sync toàn bộ (chưa có VERSION)"
+                detail = "full re-sync (no VERSION yet)"
             elif not changed:
-                detail = "đã ở tag này"
+                detail = "already at this tag"
             else:
                 detail = ", ".join(changed[:8]) + ("…" if len(changed) > 8 else "")
             rows.append(f"[cyan]{r['name']}[/cyan] {r['old'] or '?'} → {tag}: "
                         f"{detail}{_upgrade_root_suffix(r, True)}")
         for name in result["missing"]:
-            rows.append(f"[yellow]![/yellow] {name}: path mất, bỏ qua")
-        _ui.done_panel(f"upgrade --dry-run → {tag}", rows or ["Không có wiki nào."])
+            rows.append(f"[yellow]![/yellow] {name}: path gone, skipped")
+        _ui.done_panel(f"upgrade --dry-run → {tag}", rows or ["No wikis."])
         return
     rows = []
     for r in result["done"]:
-        backup = f", backup {r['backup']}" if r["backup"] else ", không có gì để backup"
+        backup = f", backup {r['backup']}" if r["backup"] else ", nothing to back up"
         rows.append(f"[green]✓[/green] {r['name']} {r['old'] or '?'} → {tag}{backup}"
                     f"{_upgrade_root_suffix(r, False)}")
     for name in result["missing"]:
-        rows.append(f"[yellow]![/yellow] {name}: path mất, bỏ qua")
-    _ui.done_panel(f"upgrade → {tag}", rows or ["Không có wiki nào."])
+        rows.append(f"[yellow]![/yellow] {name}: path gone, skipped")
+    _ui.done_panel(f"upgrade → {tag}", rows or ["No wikis."])
 
 
 @app.command("status")
 def status_cmd() -> None:
-    """Core local/latest + VERSION từng wiki trong registry.
+    """Core local/latest + VERSION of every wiki in the registry.
 
     Examples:
         llm-wiki status
     """
-    from llm_wiki import registry, upgrade as _upgrade
+    from llm_wiki import registry
+    from llm_wiki import upgrade as _upgrade
 
     core = _upgrade.find_core()
     if core is None:
-        _ui.err_panel("Không tìm thấy checkout core (.git).",
-                      "Chạy trong repo llm-wiki-base hoặc cài core từ git.")
+        _ui.err_panel("No core checkout found (.git).",
+                      "Run inside the llm-wiki-base repo or install core from git.")
         raise typer.Exit(2)
     latest = _upgrade.latest_tag(core)
     console.print(f"core: {core}")
@@ -1276,7 +1285,7 @@ def status_cmd() -> None:
     for w in registry.list_wikis():
         path = Path(w.get("path", "")).expanduser()
         ver = _upgrade.read_version(path) if path.is_dir() else None
-        flag = "" if ver == latest else "  [yellow](cũ)[/yellow]"
+        flag = "" if ver == latest else "  [yellow](old)[/yellow]"
         console.print(f"  [cyan]{w.get('name')}[/cyan]: {ver or '?'}{flag}")
 
 

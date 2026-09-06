@@ -1,6 +1,7 @@
 from typer.testing import CliRunner
-from llm_wiki.cli import app
+
 from llm_wiki.aliases import OLD_TO_NEW
+from llm_wiki.cli import app
 
 EXPECTED = [
     (("init", "personal"), ("setup", "personal")),
@@ -26,7 +27,7 @@ def test_alias_table_is_complete():
 
 
 def _normalize(help_text: str) -> str:
-    return "\n".join(l for l in help_text.splitlines() if not l.lstrip().startswith("Usage:"))
+    return "\n".join(ln for ln in help_text.splitlines() if not ln.lstrip().startswith("Usage:"))
 
 
 def test_old_and_new_help_match(runner: CliRunner):
