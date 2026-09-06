@@ -576,7 +576,12 @@ def index_file(conn, path, title, domain, kind, content, provider=None, category
     """Index 1 page vào pages + pages_fts + chunks_fts.
 
     `category` legacy chỉ dùng cho row cũ — page mới truyền category=''.
+    Reserved (index.md/log.md) không phải concept → không index, xoá row cũ nếu có.
     """
+    rel = path.replace(os.sep, "/")
+    if rel.startswith("wiki/") and is_reserved(rel):
+        db.delete_page(conn, path)
+        return 0
     s = _retrieval_settings()
     emb = None
     if provider is not None and s["vector"]:

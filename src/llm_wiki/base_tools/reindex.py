@@ -26,7 +26,7 @@ import sys
 
 import db
 import search
-from chunking import TRANSLATED_SUFFIX_RE
+from chunking import TRANSLATED_SUFFIX_RE, is_reserved
 from config_file import get_config, effective
 from embed import EmbedProvider, DEFAULT_MODEL
 from paths import WIKI_ROOT, WIKI_DIR, RAW_DIR, RAG_DIR, SKIP_DIRS
@@ -80,13 +80,17 @@ def _collect_files() -> list[tuple[str, str]]:
         os.path.join(WIKI_DIR, "**", "*.md"),
     ):
         for fp in glob.glob(pat, recursive=True):
-            parts = os.path.relpath(fp, WIKI_ROOT).split(os.sep)
+            rel = os.path.relpath(fp, WIKI_ROOT)
+            parts = rel.split(os.sep)
             if any(s in SKIP_DIRS for s in parts) or parts[-1].startswith("."):
                 continue
             if TRANSLATED_SUFFIX_RE.search(os.path.basename(fp)):
                 # bản dịch (.lang.md) — KHÔNG index
                 continue
-            files.append((os.path.relpath(fp, WIKI_ROOT), fp))
+            if rel.replace(os.sep, "/").startswith("wiki/") and is_reserved(rel):
+                # index.md/log.md là hạ tầng, không phải concept (song song sync_chunks)
+                continue
+            files.append((rel, fp))
     return files
 
 
