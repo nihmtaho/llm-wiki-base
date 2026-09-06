@@ -926,6 +926,30 @@ def proposals_show(
     _run_base_tool("proposals.py", ["show", name, "--context", str(context)], root)
 
 
+def parse_apply_output(out: str, target: str | None) -> str | None:
+    """Trích path đích từ output của `proposals.py apply`.
+
+    Ưu tiên: `--target` tường minh → dòng JSON `RESULT {...}` (contract mới) →
+    dòng legacy `APPLIED\\t<rel>`. Trả None khi không đọc được.
+    """
+    import json as _json
+    import re as _re
+    if target:
+        return target
+    for line in reversed((out or "").splitlines()):
+        line = line.strip()
+        if line.startswith("RESULT "):
+            try:
+                payload = _json.loads(line[len("RESULT "):])
+            except ValueError:
+                continue
+            rel = payload.get("target") if isinstance(payload, dict) else None
+            if rel:
+                return str(rel)
+    m = _re.search(r"^APPLIED\t(.+)$", out or "", _re.MULTILINE)
+    return m.group(1).strip() if m else None
+
+
 @review_app.command("apply")
 @_alias_proposals_app.command("apply", hidden=True)
 def proposals_apply(
@@ -947,7 +971,6 @@ def proposals_apply(
         llm-wiki review apply my-proposal
         llm-wiki review apply my-proposal --by nihmtaho
     """
-    import re as _re
     args = ["apply", name]
     if target:
         args += ["--target", target]
@@ -956,10 +979,9 @@ def proposals_apply(
         raise typer.Exit(rc)
     if not by:
         return
-    # proposals.py in `APPLIED\t<rel>` trước khi xoá file — không còn cách nào khác
-    # để biết target sau khi proposal đã không còn trên đĩa.
-    m = _re.search(r"^APPLIED\t(.+)$", out, _re.MULTILINE)
-    applied = target or (m.group(1) if m else None)
+    # proposals.py in `APPLIED\t<rel>` + dòng JSON `RESULT {...}` trước khi xoá
+    # file — CLI cần target SAU khi proposal đã không còn trên đĩa.
+    applied = parse_apply_output(out, target)
     if not applied:
         console.print("[yellow]![/yellow] không đọc được path đích từ output — tự duyệt: "
                       f"`llm-wiki check verify <path> --by {by}`")

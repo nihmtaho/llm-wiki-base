@@ -3,7 +3,7 @@ import os
 
 import db
 import search
-from chunking import TRANSLATED_SUFFIX_RE
+from chunking import TRANSLATED_SUFFIX_RE, is_reserved
 from config_file import get_config, effective
 from embed import EmbedProvider, DEFAULT_MODEL
 
@@ -27,6 +27,9 @@ def main():
     with open(full, encoding="utf-8") as f:
         content = f.read()
     rel = os.path.relpath(full, root)
+    if rel.replace(os.sep, "/").startswith("wiki/") and is_reserved(rel):
+        print(f"skip: {full} là file hạ tầng (index.md/log.md), không index.")
+        sys.exit(0)
     domain, kind = db.extract_domain_kind(content, rel)
     title = search._title_from_content(content, rel)
     c = db.get_conn()

@@ -265,8 +265,10 @@ def cmd_apply(a: argparse.Namespace) -> int:
     dest.write_text(content, encoding="utf-8")
     p.unlink()
     rel = dest.relative_to(wiki_root()).as_posix()
-    # Dòng máy đọc được — CLI cần target SAU khi file proposal đã bị xoá ở trên.
+    # Contract cho CLI (2 dòng máy đọc được): legacy `APPLIED\t<rel>` + JSON
+    # `RESULT {...}`. Giữ cả hai — base cũ chỉ có dòng đầu, CLI mới đọc JSON trước.
     print(f"APPLIED\t{rel}")
+    print(f'RESULT {{"status": "applied", "target": "{rel}"}}')
     print(f"✓ applied → {rel} ({'sửa' if existed else 'tạo mới'}), đã xoá proposal")
 
     _log_entry(rel, p.name)
