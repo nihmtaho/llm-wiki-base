@@ -35,26 +35,42 @@ No external services, no data lock-in.
 
 ## Install
 
-Requirements: **Python 3.10+** (3.11+ needs no `tomli` backport).
+Requirements: **git** (`uv` brings its own Python, so any Python 3.10+ — or none
+at all — works). One line per OS: installs the `llm-wiki` CLI globally
+(isolated, no sudo, no venv to activate) plus the machine runtime
+(`~/.llm-wiki-base/{tools/,rag/,scripts/,.venv/,registry.toml}`):
 
 ```bash
-# 1. Install the package
-git clone <url> llm-wiki-base && cd llm-wiki-base
-pip install -e .
+# macOS / Linux
+curl -LsSf astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH" && uv tool install "git+https://github.com/nihmtaho/llm-wiki-base.git" && llm-wiki setup tools
+```
 
-# 2. Install the global runtime (once per machine)
-llm-wiki base install
-# → ~/.llm-wiki-base/{tools/,rag/,scripts/,.venv/,registry.toml}
+```powershell
+# Windows (PowerShell)
+irm https://astral.sh/uv/install.ps1 | iex; $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"; uv tool install "git+https://github.com/nihmtaho/llm-wiki-base.git"; llm-wiki setup tools
+```
 
-# 3. Create a wiki
+Verify, then create a wiki:
+
+```bash
+llm-wiki setup doctor
 mkdir my-wiki && cd my-wiki && llm-wiki setup   # interactive wizard
 ```
 
-### Making `llm-wiki` available globally
+### Install from a local clone (developers)
 
-`pip install -e .` usually runs inside the repo venv, so the script lives at
-`<repo>/.venv/bin/llm-wiki` (macOS/Linux) or `<repo>/.venv/Scripts/llm-wiki.exe`
-(Windows) — **not on PATH**. Options:
+```bash
+git clone https://github.com/nihmtaho/llm-wiki-base.git && cd llm-wiki-base
+pip install -e .[dev]
+llm-wiki setup tools
+```
+
+### Making a local install available globally (manual fallback)
+
+Only needed for the local-clone install above: `pip install -e .` usually runs
+inside the repo venv, so the script lives at `<repo>/.venv/bin/llm-wiki`
+(macOS/Linux) or `<repo>/.venv/Scripts/llm-wiki.exe` (Windows) — **not on
+PATH**. Options:
 
 ```bash
 # macOS / Linux — symlink (recommended)
@@ -72,7 +88,7 @@ mklink C:\Windows\llm-wiki.exe "%CD%\.venv\Scripts\llm-wiki.exe"
 [Environment]::SetEnvironmentVariable("Path", "$env:Path;$PWD\.venv\Scripts", "User")
 ```
 
-Fallback on any OS — call through the venv: `./.venv/bin/llm-wiki base install`
+Fallback on any OS — call through the venv: `./.venv/bin/llm-wiki setup tools`
 (Windows: `.venv\Scripts\llm-wiki.exe`).
 
 ## Quickstart
