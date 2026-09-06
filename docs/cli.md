@@ -11,32 +11,32 @@ llm-wiki base install --force      # recreate venv + reinstall requirements
 llm-wiki base path                 # print current base dir
 ```
 
-## Init
+## Setup
 
 ```bash
-llm-wiki init                                     # interactive wizard
+llm-wiki setup                                     # interactive wizard
 
 # Personal
-llm-wiki init personal --name "My Knowledge" --lang vi
-llm-wiki init personal -c claude -c commandcode   # MCP clients (repeatable)
-llm-wiki init personal --no-mcp                   # skip MCP
-llm-wiki init personal --no-register              # skip registry.toml (tests/scripts)
-llm-wiki init personal --skills-target claude     # + symlink .claude/skills/
-llm-wiki init personal --no-skills                # skip skill install
+llm-wiki setup personal --name "My Knowledge" --lang vi
+llm-wiki setup personal -c claude -c commandcode   # MCP clients (repeatable)
+llm-wiki setup personal --no-mcp                   # skip MCP
+llm-wiki setup personal --no-register              # skip registry.toml (tests/scripts)
+llm-wiki setup personal --skills-target claude     # + symlink .claude/skills/
+llm-wiki setup personal --no-skills                # skip skill install
 
 # Project
-llm-wiki init project -c claude -c opencode
-llm-wiki init project --wiki-dir project-wiki     # subfolder holding the wiki
-llm-wiki init project --lang vi
-llm-wiki init project --server-name my-wiki-mcp   # rename centralized server
-llm-wiki init project --no-register               # keep tests from dirtying the registry
+llm-wiki setup project -c claude -c opencode
+llm-wiki setup project --wiki-dir project-wiki     # subfolder holding the wiki
+llm-wiki setup project --lang vi
+llm-wiki setup project --server-name my-wiki-mcp   # rename centralized server
+llm-wiki setup project --no-register               # keep tests from dirtying the registry
 ```
 
-Accepted clients: `claude`, `opencode`, `zed`, `commandcode`. Init writes the
+Accepted clients: `claude`, `opencode`, `zed`, `commandcode`. Setup writes the
 MCP entry (`llm-wiki-base-mcp`) into the **per-project/personal wiki MCP file**
 (`.mcp.json` for claude/commandcode, `opencode.jsonc` for opencode — inside the
 wiki/repo itself, committable to VCS). Clients without a project-scope file
-(e.g. `zed`) are reported as skipped. Init **prints the file path + key** it
+(e.g. `zed`) are reported as skipped. Setup **prints the file path + key** it
 wrote so you know exactly what changed.
 
 ## Wiki management (registry)
@@ -49,34 +49,34 @@ llm-wiki wiki remove my-wiki            # accepts name or id; deletes no files
 
 Each wiki has a `name` (human-readable lookup key — used as the `wiki=`
 parameter) and an `id` (machine-generated UUID, stable). Same `name`, different
-path → init **auto-suffixes `-<uuid8>`** instead of silently evicting the old
+path → setup **auto-suffixes `-<uuid8>`** instead of silently evicting the old
 wiki from the registry. MCP's `wiki=` accepts both.
 
 ## Per-wiki operations (cwd = wiki dir)
 
 ```bash
-llm-wiki ingest raw/inbox/foo.md    # index 1 source into search DB (writes no pages)
-llm-wiki reindex                    # incremental by content-hash (+ chunks_fts)
-llm-wiki reindex --check            # dry-run: what would index/drop + config drift + chunk index state
-llm-wiki reindex --full             # full rebuild (after embed_model/chunk_tokens/vector/fusion changes)
-llm-wiki lint                       # deterministic health-check (orphans, broken links, frontmatter, …)
-llm-wiki lint --fix                 # delete dangling rows + add missing index entries (additive)
-llm-wiki eval                       # P@k / R@k / MRR on golden queries (read-only)
-llm-wiki eval --compare             # tier1-weighted / rrf-text / rrf+vector + vector verdict
-llm-wiki eval --init                # create eval/golden.toml from template
-llm-wiki proposals list             # pending proposals + diff size
-llm-wiki proposals show <name>      # metadata + unified diff vs current page
-llm-wiki proposals apply <name> [--by <human-id>]   # write page + log + reindex + delete proposal
-llm-wiki proposals discard <name> --force
-llm-wiki proposals new -t wiki/x/y.md -f body.md    # create a proposal from CLI
+llm-wiki wiki ingest raw/inbox/foo.md    # index 1 source into search DB (writes no pages)
+llm-wiki wiki reindex                    # incremental by content-hash (+ chunks_fts)
+llm-wiki wiki reindex --check            # dry-run: what would index/drop + config drift + chunk index state
+llm-wiki wiki reindex --full             # full rebuild (after embed_model/chunk_tokens/vector/fusion changes)
+llm-wiki check lint                       # deterministic health-check (orphans, broken links, frontmatter, …)
+llm-wiki check lint --fix                 # delete dangling rows + add missing index entries (additive)
+llm-wiki check eval                       # P@k / R@k / MRR on golden queries (read-only)
+llm-wiki check eval --compare             # tier1-weighted / rrf-text / rrf+vector + vector verdict
+llm-wiki check eval --init                # create eval/golden.toml from template
+llm-wiki review list             # pending proposals + diff size
+llm-wiki review show <name>      # metadata + unified diff vs current page
+llm-wiki review apply <name> [--by <human-id>]   # write page + log + reindex + delete proposal
+llm-wiki review discard <name> --force
+llm-wiki review new -t wiki/x/y.md -f body.md    # create a proposal from CLI
 llm-wiki config show                # effective config, each key marked [default]/[toml]/[env …]
-llm-wiki verify wiki/<d>/concept/x.md --by <human-id>
-llm-wiki verify <path> --unverify
+llm-wiki check verify wiki/<d>/concept/x.md --by <human-id>
+llm-wiki check verify <path> --unverify
 llm-wiki watch                      # daemon: inbox → ingest → reindex → lint (+ review-due nudges)
-llm-wiki doctor                     # environment check + CLI ↔ AI-tool boundary
+llm-wiki setup doctor                     # environment check + CLI ↔ AI-tool boundary
 ```
 
-**`llm-wiki doctor`** checks: base runtime exists; `tools/` in base matches the
+**`llm-wiki setup doctor`** checks: base runtime exists; `tools/` in base matches the
 package file-by-file (prompts `llm-wiki base install` on drift); base-venv deps
 (`mcp`, `fastembed`, and `tomli` only on venv < 3.11); registry (ghost path →
 FAIL, wiki missing `id` → WARN); current wiki (has `.llm-wiki.toml`, has
@@ -112,7 +112,7 @@ Behavior config per wiki, **committed** to the wiki repo. Precedence:
 
 ```toml
 [wiki]
-profile = "personal"      # personal | codebase — set by init; skills read it for mode
+profile = "personal"      # personal | codebase — set by setup; skills read it for mode
 lang = "en"               # language the agent WRITES pages in (not translation target)
 
 [retrieval]
@@ -141,7 +141,7 @@ provider = ""             # openai-compatible | anthropic | ollama; empty = use 
 api_key_env = ""          # NAME of the env var holding the key — never write keys into files
 
 [eval]
-k = 8                     # cutoff for `llm-wiki eval`
+k = 8                     # cutoff for `llm-wiki check eval`
 
 [review]
 interval_days = 7         # review skill only runs full past this mark
@@ -155,7 +155,7 @@ banned_terms = []
 ```
 
 Changing `embed_model` / `chunk_tokens` / `vector` / `fusion` → run
-`llm-wiki reindex --full`. Runtime plumbing (paths) still goes through `.env` +
+`llm-wiki wiki reindex --full`. Runtime plumbing (paths) still goes through `.env` +
 env vars.
 
 `chunk_tokens` and `rrf_k` are **measured no-ops** on small wikis: 256/512/1024
@@ -163,9 +163,9 @@ give identical chunk counts when every section is short, and an `rrf_k` sweep of
 20→250 produced identical numbers. Don't touch them until your own wiki's eval
 says otherwise.
 
-`llm-wiki init` never overwrites an existing `.llm-wiki.toml` (only patches a
+`llm-wiki setup` never overwrites an existing `.llm-wiki.toml` (only patches a
 missing `[wiki]`), and every command writing this file (`translate enable`,
-`init` profile) **preserves comments** — comments here are documentation, not
+`setup` profile) **preserves comments** — comments here are documentation, not
 decoration.
 
 Env overrides: `WIKI_EMBED_MODEL`, `WIKI_FUSION`, `WIKI_CHUNK_BM25`,
