@@ -103,6 +103,11 @@ def set_quiet(value: bool) -> None:
 def set_no_color(value: bool) -> None:
     _state["no_color"] = value
     console.no_color = value
+    # Rich resolves the color system once at Console construction (e.g. from
+    # FORCE_COLOR) and `no_color` only strips *colors* — attributes like
+    # dim/bold still leak as ANSI. `--no-color` promises zero escapes, so drop
+    # the resolved system too (restore it when the flag is off).
+    console._color_system = None if value else console._detect_color_system()
 
 
 def set_debug(value: bool) -> None:
