@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rebuild the `llm-wiki` CLI as a goal-grouped tree with shared panel output and a 3-question wizard, keeping every old path working as a hidden alias.
+**Goal:** Rebuild the `llm-wiki-base` CLI as a goal-grouped tree with shared panel output and a 3-question wizard, keeping every old path working as a hidden alias.
 
 **Architecture:** New typer groups (`setup`, `check`, `review`, extended `wiki`/`config`) own the handlers; one `aliases.py` dict registers hidden old paths that delegate to the same functions; `_ui.py` gains the only three renderers any command may use; global `--quiet/--no-color/--debug` flow through a single UI state object.
 
@@ -12,19 +12,19 @@
 
 ## Repo map (read before starting)
 
-- `src/llm_wiki/cli.py` (~969 lines) — the whole CLI: `app` + 6 sub-typer-apps
+- `src/llm_wiki_base/cli.py` (~969 lines) — the whole CLI: `app` + 6 sub-typer-apps
   (`init`, `wiki`, `base`, `translate`, `config`, `proposals`) + top-level commands
   (`ingest`, `reindex`, `lint`, `eval`, `watch`, `serve`, `verify`, `doctor`).
-- `src/llm_wiki/_ui.py` — current renderers: `ok/fail/warn/skip/error`,
+- `src/llm_wiki_base/_ui.py` — current renderers: `ok/fail/warn/skip/error`,
   `banner`, `section`, `done_panel`, `wiki_table`, `config_table`, `skill_table`;
   module-level `console = Console()`.
-- `src/llm_wiki/init_personal.py` / `init_project.py` — `run(...)` worker functions
+- `src/llm_wiki_base/init_personal.py` / `init_project.py` — `run(...)` worker functions
   the wizard calls (do NOT change their signatures; the wizard builds their args).
-- `src/llm_wiki/installer.py` — `install_base()`, MCP entry builders (untouched).
-- `src/llm_wiki/registry.py` — `list_wikis/add_wiki/remove_wiki/find` (untouched).
+- `src/llm_wiki_base/installer.py` — `install_base()`, MCP entry builders (untouched).
+- `src/llm_wiki_base/registry.py` — `list_wikis/add_wiki/remove_wiki/find` (untouched).
 - Env var `LLM_WIKI_BASE_DIR` overrides the base dir; `HOME` override isolates
   user paths. Tests use both (see Task 1).
-- Run the CLI in dev: `python -m llm_wiki ...` from repo root after
+- Run the CLI in dev: `python -m llm_wiki_base ...` from repo root after
   `pip install -e ".[dev]"`.
 
 ## Scope check
@@ -38,9 +38,9 @@ Single subsystem (CLI surface only). Spec sections map to tasks:
 
 | File | Responsibility |
 |------|---------------|
-| `src/llm_wiki/_ui.py` (modify) | Only renderers: `ok_panel`, `err_panel`, `table`, UI state (`quiet`, `no_color`, `debug`); keep existing helpers until no caller uses them, then delete |
-| `src/llm_wiki/cli.py` (modify) | New groups, moved handlers, global flags, hidden-alias registration, top-level exception guard |
-| `src/llm_wiki/aliases.py` (create) | Single `OLD_TO_NEW: dict[tuple[str, ...], tuple[str, ...]]` mapping, e.g. `("init", "personal") → ("setup", "personal")` |
+| `src/llm_wiki_base/_ui.py` (modify) | Only renderers: `ok_panel`, `err_panel`, `table`, UI state (`quiet`, `no_color`, `debug`); keep existing helpers until no caller uses them, then delete |
+| `src/llm_wiki_base/cli.py` (modify) | New groups, moved handlers, global flags, hidden-alias registration, top-level exception guard |
+| `src/llm_wiki_base/aliases.py` (create) | Single `OLD_TO_NEW: dict[tuple[str, ...], tuple[str, ...]]` mapping, e.g. `("init", "personal") → ("setup", "personal")` |
 | `tests/conftest.py` (create) | `CliRunner` fixture, isolated env (`LLM_WIKI_BASE_DIR` + `HOME` → tmp) |
 | `tests/test_*.py` (create) | One file per task below; never put two tasks' tests in one file |
 
@@ -120,7 +120,7 @@ git commit -m "test(cli): harness with isolated env and CliRunner fixtures"
 ### Task 2: Shared output renderers (`_ui` v2)
 
 **Files:**
-- Modify: `src/llm_wiki/_ui.py`
+- Modify: `src/llm_wiki_base/_ui.py`
 - Test: `tests/test_ui.py`
 
 Spec §4: every command renders through `ok_panel` / `err_panel` / `table`.
@@ -129,13 +129,13 @@ UI state lives in one place so global flags (Task 3) can flip it.
 - [ ] **Step 1: Write the failing test**
 
 ```python
-from llm_wiki import _ui
+from llm_wiki_base import _ui
 
 
 def test_ok_panel_quiet_prints_facts_only(capsys):
     _ui.set_quiet(True)
     try:
-        _ui.ok_panel("Wiki ready", ["name: demo"], ["llm-wiki wiki add demo"])
+        _ui.ok_panel("Wiki ready", ["name: demo"], ["llm-wiki-base wiki add demo"])
     finally:
         _ui.set_quiet(False)
     out = capsys.readouterr().out
@@ -151,7 +151,7 @@ Expected: FAIL with `has no attribute 'set_quiet'` (or `ok_panel`).
 
 - [ ] **Step 3: Write minimal implementation**
 
-Append to `src/llm_wiki/_ui.py`:
+Append to `src/llm_wiki_base/_ui.py`:
 
 ```python
 _state = {"quiet": False, "no_color": False, "debug": False}
@@ -233,7 +233,7 @@ Expected: `1 passed`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/llm_wiki/_ui.py tests/test_ui.py
+git add src/llm_wiki_base/_ui.py tests/test_ui.py
 git commit -m "feat(cli): shared ok/err/table renderers with quiet mode"
 ```
 
@@ -242,7 +242,7 @@ git commit -m "feat(cli): shared ok/err/table renderers with quiet mode"
 ### Task 3: Global flags `--quiet/--no-color/--debug`
 
 **Files:**
-- Modify: `src/llm_wiki/cli.py`
+- Modify: `src/llm_wiki_base/cli.py`
 - Test: `tests/test_global_flags.py`
 
 Flags must work on every command, so they live on an `@app.callback()`.
@@ -252,7 +252,7 @@ Flags must work on every command, so they live on an `@app.callback()`.
 
 ```python
 from typer.testing import CliRunner
-from llm_wiki.cli import app
+from llm_wiki_base.cli import app
 
 
 def test_quiet_flag_suppresses_panels(runner: CliRunner, isolated_env):
@@ -298,7 +298,7 @@ In `wiki_list_cmd`, replace the empty-registry line with:
     if not wikis:
         if _ui.is_quiet():
             return
-        console.print("[dim]Registry rỗng. Chạy `llm-wiki setup` để tạo wiki đầu tiên.[/dim]")
+        console.print("[dim]Registry rỗng. Chạy `llm-wiki-base setup` để tạo wiki đầu tiên.[/dim]")
         return
 ```
 
@@ -317,7 +317,7 @@ Expected: all pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/llm_wiki/cli.py src/llm_wiki/_ui.py tests/test_global_flags.py
+git add src/llm_wiki_base/cli.py src/llm_wiki_base/_ui.py tests/test_global_flags.py
 git commit -m "feat(cli): global --quiet/--no-color/--debug flags"
 ```
 
@@ -326,7 +326,7 @@ git commit -m "feat(cli): global --quiet/--no-color/--debug flags"
 ### Task 4: New canonical tree
 
 **Files:**
-- Modify: `src/llm_wiki/cli.py`
+- Modify: `src/llm_wiki_base/cli.py`
 - Test: `tests/test_tree.py`
 
 Spec §3. New groups: `setup` (personal/project/tools/doctor), `check`
@@ -339,7 +339,7 @@ decorator and function location change.
 
 ```python
 from typer.testing import CliRunner
-from llm_wiki.cli import app
+from llm_wiki_base.cli import app
 
 
 def test_canonical_groups_exist(runner: CliRunner):
@@ -393,13 +393,13 @@ Keep `translate`, `config show`, `serve`, `watch` exactly where they are.
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_tree.py -q`
-Expected: pass. Also run `python -m llm_wiki --help` manually and confirm the
+Expected: pass. Also run `python -m llm_wiki_base --help` manually and confirm the
 six groups render.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/llm_wiki/cli.py tests/test_tree.py
+git add src/llm_wiki_base/cli.py tests/test_tree.py
 git commit -m "feat(cli): goal-grouped setup/check/review tree, wiki/config absorb orphans"
 ```
 
@@ -408,8 +408,8 @@ git commit -m "feat(cli): goal-grouped setup/check/review tree, wiki/config abso
 ### Task 5: Hidden aliases for every old path
 
 **Files:**
-- Create: `src/llm_wiki/aliases.py`
-- Modify: `src/llm_wiki/cli.py`
+- Create: `src/llm_wiki_base/aliases.py`
+- Modify: `src/llm_wiki_base/cli.py`
 - Test: `tests/test_aliases.py`
 
 Spec §7. One dict, hidden commands, identical behavior. Aliases delegate to the
@@ -419,8 +419,8 @@ new handler functions — import them, do not copy bodies.
 
 ```python
 from typer.testing import CliRunner
-from llm_wiki.cli import app
-from llm_wiki.aliases import OLD_TO_NEW
+from llm_wiki_base.cli import app
+from llm_wiki_base.aliases import OLD_TO_NEW
 
 EXPECTED = [
     (("init", "personal"), ("setup", "personal")),
@@ -462,11 +462,11 @@ def test_aliases_hidden_from_help(runner: CliRunner):
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_aliases.py -q`
-Expected: FAIL — `llm_wiki.aliases` does not exist.
+Expected: FAIL — `llm_wiki_base.aliases` does not exist.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `src/llm_wiki/aliases.py`:
+Create `src/llm_wiki_base/aliases.py`:
 
 ```python
 """Old command paths, kept working as hidden aliases (spec §7).
@@ -498,7 +498,7 @@ In `cli.py`, after all canonical registrations, add hidden delegating commands.
 Pattern per alias (repeat for every row; single-word olds delegate directly):
 
 ```python
-from llm_wiki.aliases import OLD_TO_NEW  # noqa: F401 (documents the contract)
+from llm_wiki_base.aliases import OLD_TO_NEW  # noqa: F401 (documents the contract)
 
 @app.command("doctor", hidden=True)
 def _alias_doctor(ctx: typer.Context) -> None:
@@ -538,14 +538,14 @@ commands forward to the five `review_*` functions with identical signatures.
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_aliases.py -q`
-Expected: pass. Manual spot check: `python -m llm_wiki doctor --help` output
-equals `python -m llm_wiki setup doctor --help`, and root `--help` shows no
+Expected: pass. Manual spot check: `python -m llm_wiki_base doctor --help` output
+equals `python -m llm_wiki_base setup doctor --help`, and root `--help` shows no
 `proposals` group and no top-level `doctor`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/llm_wiki/aliases.py src/llm_wiki/cli.py tests/test_aliases.py
+git add src/llm_wiki_base/aliases.py src/llm_wiki_base/cli.py tests/test_aliases.py
 git commit -m "feat(cli): hidden aliases for all pre-redesign paths"
 ```
 
@@ -554,7 +554,7 @@ git commit -m "feat(cli): hidden aliases for all pre-redesign paths"
 ### Task 6: Help convention with examples
 
 **Files:**
-- Modify: `src/llm_wiki/cli.py`
+- Modify: `src/llm_wiki_base/cli.py`
 - Test: `tests/test_help.py`
 
 Spec §6: every command help has one line + `Examples` with 2–3 real commands.
@@ -564,7 +564,7 @@ Typer renders `\f`-separated epilogs; use that.
 
 ```python
 from typer.testing import CliRunner
-from llm_wiki.cli import app
+from llm_wiki_base.cli import app
 import typer
 
 
@@ -605,8 +605,8 @@ def setup_personal_cmd(...) -> None:
     """Create a personal wiki in an empty folder.
     \f
     Examples:
-        llm-wiki setup personal --name notes
-        llm-wiki setup personal --name notes --clients claude,opencode
+        llm-wiki-base setup personal --name notes
+        llm-wiki-base setup personal --name notes --clients claude,opencode
     """
 ```
 
@@ -625,7 +625,7 @@ Expected: pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/llm_wiki/cli.py tests/test_help.py
+git add src/llm_wiki_base/cli.py tests/test_help.py
 git commit -m "docs(cli): examples in every command help, goal-ordered groups"
 ```
 
@@ -634,7 +634,7 @@ git commit -m "docs(cli): examples in every command help, goal-ordered groups"
 ### Task 7: Slim wizard with summary confirm
 
 **Files:**
-- Modify: `src/llm_wiki/cli.py` (wizard functions only)
+- Modify: `src/llm_wiki_base/cli.py` (wizard functions only)
 - Test: `tests/test_wizard.py`
 
 Spec §5. Current wizard asks 5–6 questions (type → name, lang, clients, mcp?,
@@ -657,7 +657,7 @@ the dropped questions (lang, skills target, skip_mcp) as extra prompts.
 
 ```python
 from typer.testing import CliRunner
-from llm_wiki.cli import app
+from llm_wiki_base.cli import app
 
 
 def test_setup_personal_yes_runs_with_defaults(runner: CliRunner, isolated_env, tmp_path):
@@ -696,7 +696,7 @@ def setup_interactive(ctx: typer.Context) -> None:
     """Slim wizard: location → profile → clients, then summary + confirm."""
     if ctx.invoked_subcommand is not None:
         return
-    _ui.banner("llm-wiki setup", "Tạo wiki mới trong 3 câu hỏi.")
+    _ui.banner("llm-wiki-base setup", "Tạo wiki mới trong 3 câu hỏi.")
     wtype = Prompt.ask("Loại wiki", choices=["personal", "project"], default="personal")
     if wtype == "personal":
         _slim_personal(interactive=False)
@@ -717,13 +717,13 @@ skills target and skip_mcp before the summary.
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_wizard.py -q`
-Expected: pass. Manual check: `python -m llm_wiki setup` walks 3 questions +
+Expected: pass. Manual check: `python -m llm_wiki_base setup` walks 3 questions +
 summary in a scratch dir (use `LLM_WIKI_BASE_DIR=/tmp/...` to avoid real state).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/llm_wiki/cli.py tests/test_wizard.py
+git add src/llm_wiki_base/cli.py tests/test_wizard.py
 git commit -m "feat(cli): slim 3-question setup wizard with summary confirm"
 ```
 
@@ -732,7 +732,7 @@ git commit -m "feat(cli): slim 3-question setup wizard with summary confirm"
 ### Task 8: Error pass — route everything through `err_panel`
 
 **Files:**
-- Modify: `src/llm_wiki/cli.py`, `src/llm_wiki/_ui.py` (only if a caller needs a new renderer arg — prefer not)
+- Modify: `src/llm_wiki_base/cli.py`, `src/llm_wiki_base/_ui.py` (only if a caller needs a new renderer arg — prefer not)
 - Test: `tests/test_errors.py`
 
 Spec §8: exit 0/1/2; user errors show `err_panel(what, fix)`; no tracebacks
@@ -742,7 +742,7 @@ unless `--debug`; unexpected exceptions become a friendly panel.
 
 ```python
 from typer.testing import CliRunner
-from llm_wiki.cli import app
+from llm_wiki_base.cli import app
 
 
 def test_missing_wiki_error_has_fix(runner: CliRunner, isolated_env):
@@ -771,7 +771,7 @@ Two changes, applied handler by handler until the suite is green:
 1. Replace every user-error `console.print(f"[red]Error:[/red] ...")` with:
 
 ```python
-_ui.err_panel(f"wiki '{name}' không có trong registry", "llm-wiki wiki list")
+_ui.err_panel(f"wiki '{name}' không có trong registry", "llm-wiki-base wiki list")
 raise typer.Exit(1)
 ```
 
@@ -785,12 +785,12 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001 — last-resort guard, spec §8
         if _ui.is_debug():
             raise
-        _ui.err_panel(f"Unexpected error: {exc}", "llm-wiki --debug <same command> for traceback")
+        _ui.err_panel(f"Unexpected error: {exc}", "llm-wiki-base --debug <same command> for traceback")
         raise typer.Exit(1)
 ```
 
 And point the entry point at it: `pyproject.toml`
-`llm-wiki = "llm_wiki.cli:main"` (was `...cli:app`); `__main__.py` calls
+`llm-wiki-base = "llm_wiki_base.cli:main"` (was `...cli:app`); `__main__.py` calls
 `main()` if it currently calls `app()` — check and update.
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -801,7 +801,7 @@ Expected: full suite green.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/llm_wiki/cli.py src/llm_wiki/_ui.py pyproject.toml src/llm_wiki/__main__.py tests/test_errors.py
+git add src/llm_wiki_base/cli.py src/llm_wiki_base/_ui.py pyproject.toml src/llm_wiki_base/__main__.py tests/test_errors.py
 git commit -m "feat(cli): err_panel for user errors, guarded entrypoint"
 ```
 
@@ -830,12 +830,12 @@ Expected: all green, no warnings about unknown marks.
 
 ```bash
 export LLM_WIKI_BASE_DIR=/tmp/wikismoke
-python -m llm_wiki --help
-python -m llm_wiki setup --help
-python -m llm_wiki doctor --help      # alias: must equal `setup doctor --help`
-diff <(python -m llm_wiki doctor --help) <(python -m llm_wiki setup doctor --help) && echo ALIAS_OK
-python -m llm_wiki --quiet wiki list; echo "exit=$?"
-python -m llm_wiki wiki remove nope --force; echo "exit=$?"
+python -m llm_wiki_base --help
+python -m llm_wiki_base setup --help
+python -m llm_wiki_base doctor --help      # alias: must equal `setup doctor --help`
+diff <(python -m llm_wiki_base doctor --help) <(python -m llm_wiki_base setup doctor --help) && echo ALIAS_OK
+python -m llm_wiki_base --quiet wiki list; echo "exit=$?"
+python -m llm_wiki_base wiki remove nope --force; echo "exit=$?"
 rm -rf /tmp/wikismoke
 ```
 

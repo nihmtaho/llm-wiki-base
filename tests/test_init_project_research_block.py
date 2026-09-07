@@ -1,16 +1,15 @@
-"""Root research block injected by `llm-wiki init project`.
+"""Root research block injected by `llm-wiki-base init project`.
 
 Covers template + `_ensure_root_research_block` + `run()` hook.
 Idempotent: create → append → refresh-in-place, never duplicate.
 """
 
-from pathlib import Path
 
-from llm_wiki import init_project
-from llm_wiki._package_data import template_exists
+from llm_wiki_base import init_project
+from llm_wiki_base._package_data import template_exists
 
-START = "<!-- LLM_WIKI_RESEARCH_START -->"
-END = "<!-- LLM_WIKI_RESEARCH_END -->"
+START = "<!-- LLM_WIKI_BASE_RESEARCH_START -->"
+END = "<!-- LLM_WIKI_BASE_RESEARCH_END -->"
 
 
 def test_template_shipped():

@@ -1,7 +1,7 @@
 import pytest
 from typer.testing import CliRunner
 
-from llm_wiki import _ui
+from llm_wiki_base import _ui
 
 
 @pytest.fixture()

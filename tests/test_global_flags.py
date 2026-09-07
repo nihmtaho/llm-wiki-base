@@ -1,5 +1,6 @@
 from typer.testing import CliRunner
-from llm_wiki.cli import app
+
+from llm_wiki_base.cli import app
 
 
 def test_quiet_flag_suppresses_panels(runner: CliRunner, isolated_env):

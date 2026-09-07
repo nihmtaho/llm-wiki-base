@@ -18,7 +18,7 @@ Các quy tắc trong template này được tổng hợp từ nhiều nguồn. G
 - **Embedding:** `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384-dim, đa ngôn ngữ). Run on-device qua `fastembed` — không gọi API ngoài.
 - **Search:** SQLite FTS5 (2 bảng: `pages_fts` page-level + `chunks_fts` chunk-level) + numpy cosine trên chunk vectors. 3 kênh xếp hạng độc lập, gộp bằng **RRF trên hạng** (`[retrieval].fusion = "rrf"`), vì `bm25()` và cosine khác thang hoàn toàn. Chế độ cũ `fusion = "weighted"` (cộng thẳng `WIKI_BM25_WEIGHT`/`WIKI_VEC_WEIGHT`) vẫn còn để rollback và để eval A-B.
 - **Rerank:** không có model riêng — là bước LLM trong skill query/research (`[retrieval].rerank = "llm"`).
-- **Đo lường:** `llm-wiki eval` (P@k / R@k / MRR trên `eval/golden.toml`) — quyết định bật vector bằng số, không bằng cảm giác.
+- **Đo lường:** `llm-wiki-base eval` (P@k / R@k / MRR trên `eval/golden.toml`) — quyết định bật vector bằng số, không bằng cảm giác.
 - **Web extract:** `trafilatura`. PDF: `pymupdf`. YouTube: yt-dlp / youtube-transcript-api.
 - **MCP:** `mcp` Python SDK, stdio transport.
 

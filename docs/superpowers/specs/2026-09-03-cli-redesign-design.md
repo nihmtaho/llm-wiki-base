@@ -4,7 +4,7 @@ Date: 2026-09-03 | Status: approved, pending implementation plan
 
 ## 1. Goal
 
-Rebuild the `llm-wiki` CLI around user goals instead of implementation history:
+Rebuild the `llm-wiki-base` CLI around user goals instead of implementation history:
 find any command in seconds, read consistent output, finish setup in 3 questions.
 Human-in-terminal is the primary consumer; agents/scripts stay supported via
 `--quiet` / `--no-color`, not via a separate machine interface.
@@ -77,7 +77,7 @@ in goal order (setup → wiki → check → review → translate → config → 
 
 ## 7. Alias mechanism
 
-Single `OLD_TO_NEW` dict in one module (`src/llm_wiki/aliases.py`).
+Single `OLD_TO_NEW` dict in one module (`src/llm_wiki_base/aliases.py`).
 Old paths register as hidden typer commands delegating to the new handlers.
 Hidden from `--help`, no warnings, identical behavior and exit codes.
 

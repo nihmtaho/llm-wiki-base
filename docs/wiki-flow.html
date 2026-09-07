@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>llm-wiki — dòng chảy dữ liệu (canvas diagram)</title>
-<meta name="description" content="Sơ đồ động giải thích cách llm-wiki biến nguồn thô thành wiki có chỉ mục hybrid, và chỗ nào con người giữ quyền quyết định.">
+<title>llm-wiki-base — dòng chảy dữ liệu (canvas diagram)</title>
+<meta name="description" content="Sơ đồ động giải thích cách llm-wiki-base biến nguồn thô thành wiki có chỉ mục hybrid, và chỗ nào con người giữ quyền quyết định.">
 <style>
   /* ── Tokens ──────────────────────────────────────────────────────────────
      4 role hues, tách nhau bằng LIGHTNESS (không chỉ bằng hue) để còn phân biệt
@@ -201,7 +201,7 @@
 
 <header class="masthead">
   <div class="masthead-in">
-    <p class="eyebrow">llm-wiki · kiến trúc</p>
+    <p class="eyebrow">llm-wiki-base · kiến trúc</p>
     <h1>Nguồn thô thành wiki, chỉ mục là đồ vứt đi, quyền quyết định nằm ở người</h1>
     <p class="lede">
       Ba tầng tách nhau rõ: <strong>markdown</strong> là nguồn sự thật,
@@ -244,7 +244,7 @@
 
   <div class="stage-shell">
     <canvas id="flow" role="img"
-      aria-label="Sơ đồ dòng chảy llm-wiki: raw/inbox → ingest skill → wiki pages → ba chỉ mục derived → wiki_search → RRF → rerank → trả lời có cite, với cổng human review cho proposal.">
+      aria-label="Sơ đồ dòng chảy llm-wiki-base: raw/inbox → ingest skill → wiki pages → ba chỉ mục derived → wiki_search → RRF → rerank → trả lời có cite, với cổng human review cho proposal.">
     </canvas>
     <div class="tooltip" id="tip" role="status" aria-live="off"></div>
   </div>
@@ -295,7 +295,7 @@
         <code>log.md</code> vào chunk index thì mọi query từ khoá đều ăn điểm giả.</li>
       <li><strong>Personal khác project ở nội dung, không ở bộ skill.</strong> Cùng 8 skill;
         <code>[wiki].profile</code> quyết định có verify code path và tách
-        intent/observation hay không. Project wiki còn có <code>llm-wiki-research</code>
+        intent/observation hay không. Project wiki còn có <code>llm-wiki-base-research</code>
         ở <em>root repo</em> — nó cần thấy mọi wiki, nên không được nhét vào trong một wiki.</li>
     </ul>
 
@@ -309,7 +309,7 @@
     <span>Tài liệu chính: <a href="../README.md">README</a> ·
       <a href="init.md">init guide</a> ·
       <a href="tier3-roadmap.md">roadmap</a> ·
-      <a href="../src/llm_wiki/templates/agents/_schema.md">_schema.md</a></span>
+      <a href="../src/llm_wiki_base/templates/agents/_schema.md">_schema.md</a></span>
     <span>Sơ đồ này chạy offline, không dependency ngoài.</span>
   </footer>
 </main>
@@ -332,16 +332,16 @@ const NODES = [
   { id: "extract", label: "scripts/extract_*",     sub: "url · pdf · youtube",    role: ROLE.engine, skill: false, wide: [0,1], slot: 1, modes: "*" },
   { id: "submit",  label: "wiki_submit (MCP)",      sub: "AI khác nạp, bắt buộc wiki=", role: ROLE.engine, skill: false, wide: [0,2], slot: 2, modes: "*" },
   { id: "inbox",   label: "raw/inbox/",             sub: "staging, chờ ingest",    role: ROLE.data,   skill: false, wide: [1,1], slot: 3, modes: "*" },
-  { id: "ingest",  label: "skill llm-wiki-ingest",  sub: "đọc · tóm tắt · domain", role: ROLE.data, skill: true, wide: [2,1], slot: 4, modes: "*" },
+  { id: "ingest",  label: "skill llm-wiki-base-ingest",  sub: "đọc · tóm tắt · domain", role: ROLE.data, skill: true, wide: [2,1], slot: 4, modes: "*" },
   { id: "verifycode", label: "verify code path",    sub: "grep confirm", role: ROLE.human, skill: true, wide: [2,2], slot: 5, modes: "project" },
   { id: "pages",   label: "wiki/<domain>/*.md",     sub: "source · entity · concept", role: ROLE.data, skill: false, wide: [3,1], slot: 6, modes: "*" },
   { id: "catalog", label: "index.md + log.md",      sub: "re-derivable → tự ghi",  role: ROLE.data,   skill: false, wide: [3,2], slot: 7, modes: "*" },
-  { id: "reindex", label: "llm-wiki reindex",       sub: "content-hash, tăng dần", role: ROLE.engine, skill: false, wide: [4,1], slot: 8, modes: "*" },
+  { id: "reindex", label: "llm-wiki-base reindex",       sub: "content-hash, tăng dần", role: ROLE.engine, skill: false, wide: [4,1], slot: 8, modes: "*" },
   { id: "pfts",    label: "pages_fts",              sub: "BM25 cấp page",          role: ROLE.derived, skill: false, wide: [5,0], slot: 9, modes: "*" },
   { id: "cfts",    label: "chunks_fts",             sub: "BM25 cấp chunk",         role: ROLE.derived, skill: false, wide: [5,1], slot: 10, modes: "*" },
   { id: "vectors", label: "vectors.npy",            sub: "rag/.rag_index/",        role: ROLE.derived, skill: false, wide: [5,2], slot: 11, modes: "*" },
   { id: "ask",     label: "Câu hỏi",                sub: "trong AI tool",          role: ROLE.human,  skill: false, wide: [1,3], slot: 12, modes: "*" },
-  { id: "root",    label: "llm-wiki-research",      sub: "xuyên N wiki, chỉ staging", role: ROLE.engine, skill: true, wide: [2,3], slot: 13, modes: "project" },
+  { id: "root",    label: "llm-wiki-base-research",      sub: "xuyên N wiki, chỉ staging", role: ROLE.engine, skill: true, wide: [2,3], slot: 13, modes: "project" },
   { id: "search",  label: "wiki_search (MCP)",      sub: "pool = 2 × top_n_final", role: ROLE.engine, skill: false, wide: [3,3], slot: 14, modes: "*" },
   { id: "rrf",     label: "RRF trên hạng",          sub: "3 kênh → 1 thứ tự",      role: ROLE.engine, skill: false, wide: [4,3], slot: 15, modes: "*" },
   { id: "rerank",  label: "skill rerank + query",   sub: "title/snippet/matched_by", role: ROLE.data, skill: true, wide: [5,3], slot: 16, modes: "*" },
@@ -353,7 +353,7 @@ const NODES = [
 
 /* Project mode: node nào nằm trong repo, và ở TẦNG NÀO của repo. Hai nhãn tách
    bạch là cố ý — đây chính là điểm dễ hiểu sai nhất của project wiki: skill
-   vận hành một wiki nằm trong `<wiki-dir>/`, còn `llm-wiki-research` nằm ở repo
+   vận hành một wiki nằm trong `<wiki-dir>/`, còn `llm-wiki-base-research` nằm ở repo
    root vì nó cần thấy mọi wiki. `catalog` không được tag: nó là một phần của
    `pages`, tag cả hai là lặp thông tin. */
 const REPO_SCOPE = {
@@ -380,7 +380,7 @@ const STEPS = [
     body: "Không có đường tắt vào <strong>wiki/</strong>. Mọi thứ đi qua <code>raw/inbox/</code> trước. AI ngoài chỉ được phép ghi đúng một chỗ: <code>wiki_submit</code> → inbox của wiki <em>do người chỉ định</em> (tham số <code>wiki</code> bắt buộc, không được tự chọn wiki để ghi).",
     byMode: { project: null } },
   { key: "ingest", title: "2 · Ingest = skill + LLM", nodes: ["ingest","verifycode"],
-    actor: "SKILL (cần LLM) — CLI không làm bước này", place: "AI tool đang mở", cmd: "# llm-wiki ingest <file> CHỈ index.\n# Viết page: chạy skill llm-wiki-ingest trong AI tool.",
+    actor: "SKILL (cần LLM) — CLI không làm bước này", place: "AI tool đang mở", cmd: "# llm-wiki-base ingest <file> CHỈ index.\n# Viết page: chạy skill llm-wiki-base-ingest trong AI tool.",
     body: "Đọc trọn nguồn, tóm tắt 3–5 takeaway, <strong>bàn với người trước khi ghi</strong>, auto-detect domain, rồi viết source/entity/concept page kèm provenance. <code>verified</code> để trống — chờ người.",
     byMode: {
       personal: { extra: "Personal: 1 source thường chạm 10–15 page; từ vựng/ngữ pháp phải vào wiki chứ không nằm chết trong source page." },
@@ -390,17 +390,17 @@ const STEPS = [
     body: "Page mới + cross-link <code>[[wiki/…]]</code> + cập nhật <code>index.md</code>/<code>log.md</code>. Hai file catalog đó <em>re-derivable</em> nên agent tự ghi; mọi assertion khác thì không.",
     byMode: {} },
   { key: "index", title: "4 · Dựng chỉ mục derived", nodes: ["reindex","pfts","cfts","vectors"],
-    actor: "CLI tất định", place: "wiki/.wiki.db + rag/.rag_index/", cmd: "llm-wiki reindex          # tăng dần theo content-hash\nllm-wiki reindex --check   # dry-run + config drift\nllm-wiki reindex --full    # sau khi đổi chunk_tokens/embed_model/vector",
+    actor: "CLI tất định", place: "wiki/.wiki.db + rag/.rag_index/", cmd: "llm-wiki-base reindex          # tăng dần theo content-hash\nllm-wiki-base reindex --check   # dry-run + config drift\nllm-wiki-base reindex --full    # sau khi đổi chunk_tokens/embed_model/vector",
     body: "Ba chỉ mục từ cùng một markdown: <code>pages_fts</code>, <code>chunks_fts</code> (FTS5), và vector chunk (fastembed on-device). Tất cả đều <strong>vứt đi rebuild được</strong> — nên chúng gitignored, và nếu index với markdown khác nhau thì markdown đúng.",
     byMode: {} },
   { key: "search", title: "5 · Câu hỏi → pool ứng viên", nodes: ["ask","search","root"],
     actor: "MCP server (tất định) + skill điều phối", place: "llm-wiki-base-mcp → registry.toml", cmd: "wiki_search(query, top_k = 2 × top_n_final, wiki=\"\")",
     body: "Một server duy nhất cho cả máy, đọc <code>registry.toml</code> để biết có wiki nào (<code>name</code> + <code>id</code>). <code>wiki=\"\"</code> = search mọi wiki. Xin pool <strong>rộng hơn</strong> số cần đọc vì bước cắt cần ngữ nghĩa, không cần thống kê.",
     byMode: {
-      personal: { extra: "Wiki cá nhân: query thường ở trong một wiki → skill llm-wiki-query." },
-      project:  { extra: "Repo code: chưa biết câu trả lời nằm ở wiki nào → llm-wiki-research ở root repo, đối chiếu project wiki ↔ personal wiki, rồi mới fallback sang grep." } } },
+      personal: { extra: "Wiki cá nhân: query thường ở trong một wiki → skill llm-wiki-base-query." },
+      project:  { extra: "Repo code: chưa biết câu trả lời nằm ở wiki nào → llm-wiki-base-research ở root repo, đối chiếu project wiki ↔ personal wiki, rồi mới fallback sang grep." } } },
   { key: "fuse", title: "6 · ba kênh → RRF", nodes: ["rrf","pfts","cfts","vectors"],
-    actor: "CLI/Python tất định", place: "tools/search.py", cmd: "# .llm-wiki.toml\n[retrieval]\nfusion = \"rrf\"\n[retrieval.weights]\nbm25_page = 1.0\nbm25_chunk = 1.0\nvector = 1.0",
+    actor: "CLI/Python tất định", place: "tools/search.py", cmd: "# .llm-wiki-base.toml\n[retrieval]\nfusion = \"rrf\"\n[retrieval.weights]\nbm25_page = 1.0\nbm25_chunk = 1.0\nvector = 1.0",
     body: "Không cộng thẳng score: <code>bm25()</code> và cosine khác thang hoàn toàn, nên RRF gộp bằng <strong>hạng</strong>. Mỗi kết quả mang <code>matched_by</code> + <code>rank</code> + <code>snippet</code>. Thiếu model / chưa build chunk → kênh đó tự tắt và <em>được báo</em>, không im lặng trả số liệu giả.",
     byMode: {} },
   { key: "rerank", title: "7 · Rerank = việc của LLM", nodes: ["rerank"],
@@ -412,7 +412,7 @@ const STEPS = [
     body: "Chunk chỉ đủ để <em>chọn</em> page — câu trả lời lấy từ page đã biên dịch. Page draft/không <code>verified</code>/quá <code>stale_after</code> phải bị gắn cờ ngay trong câu trả lời. Synthesis hay → file ngược thành page mới để wiki compounding.",
     byMode: {} },
   { key: "gate", title: "9 · Cổng người: proposal, verify, pin", nodes: ["proposal","apply","pins"],
-    actor: "NGƯỜI — máy chỉ đề xuất", place: "wiki/.proposals/ → page đã duyệt", cmd: "llm-wiki proposals list\nllm-wiki proposals show <name>      # unified diff\nllm-wiki proposals apply <name> --by <you>\nllm-wiki verify <path> --by <you>",
+    actor: "NGƯỜI — máy chỉ đề xuất", place: "wiki/.proposals/ → page đã duyệt", cmd: "llm-wiki-base proposals list\nllm-wiki-base proposals show <name>      # unified diff\nllm-wiki-base proposals apply <name> --by <you>\nllm-wiki-base verify <path> --by <you>",
     body: "AI đọc thì tự do, khẳng định thì phải có chữ ký. Proposal mang metadata (target đầy đủ, ai đề xuất, lúc nào) để <code>list</code>/<code>show</code> hiện được diff thật. <code>pins.yml</code> giữ đoạn người sửa tay sống qua regenerate; mâu thuẫn với pin → <code>wiki/alerts/</code>, không revert âm thầm.",
     byMode: {} },
 ];
@@ -750,7 +750,7 @@ document.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click"
   state.mode = b.dataset.mode;
   document.querySelectorAll("[data-mode]").forEach(x =>
     x.setAttribute("aria-pressed", String(x === b)));
-  document.title = `llm-wiki — ${state.mode === "project" ? "project wiki" : "personal wiki"} hoạt động thế nào`;
+  document.title = `llm-wiki-base — ${state.mode === "project" ? "project wiki" : "personal wiki"} hoạt động thế nào`;
   go(state.step, true); resize();
 }));
 

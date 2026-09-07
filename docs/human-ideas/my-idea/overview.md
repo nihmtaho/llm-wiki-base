@@ -1,7 +1,7 @@
 ---
 type: Overview
 title: "LLM-Wiki — vision & thiết kế"
-description: "llm-wiki cho codebase, tối giản theo Karpathy, chuẩn hoá bằng OKF v0.2, retrieval hybrid."
+description: "llm-wiki-base cho codebase, tối giản theo Karpathy, chuẩn hoá bằng OKF v0.2, retrieval hybrid."
 status: draft
 generated: { by: "claude-code/opus-4.8", at: 2026-09-01T17:14:00+07:00 }
 sources:

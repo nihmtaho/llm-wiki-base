@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "llm-wiki-base-mcp": {
+      "command": "llm-wiki-base",
+      "args": ["serve", "--mcp"]
+    }
+  }
+}
