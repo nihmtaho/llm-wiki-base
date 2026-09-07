@@ -24,3 +24,12 @@ dist/
 .DS_Store
 .serena/
 .superpowers/
+
+# Local AI-tool state (per-user, never tracked)
+.claude/CLAUDE.md
+.claude/settings.json
+.claude/.headroom_wrap_settings.lock
+.claude/skills/caveman-learn/
+.codegraph/
+opencode.jsonc
+docs/release-workflow.html
