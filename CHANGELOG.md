@@ -6,6 +6,31 @@ Versioning follows [SemVer 2.0.0](https://semver.org/); tags are `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.1.1-beta.1] - 2026-09-07
+
+Beta for the `llm-wiki-base` rename. Please test.
+
+### Changed
+
+- Renamed everything to `llm-wiki-base` — console script, package and module
+  (`llm_wiki_base`), skill names, `.llm-wiki-base.toml`, `.llm-wiki-base/`
+  state dir, `LLM_WIKI_BASE_*` env vars. Re-run `setup` to refresh MCP
+  entries; rename or re-init old `.llm-wiki.toml` files.
+- CLI help and prompts are English throughout (code comments stay Vietnamese).
+- One-line global install per OS (`uv tool install …` + `setup tools`); wheel
+  builds fixed (dropped duplicate `force-include`, relative symlinks).
+
+### Added
+
+- `setup doctor` warns when `llm-wiki-base` is not on PATH.
+- Quality gates: `ruff` + `mypy` config and GitHub Actions CI.
+
+### Fixed
+
+- `registry.toml` survives Windows paths, quotes, and unicode (`tomli-w`).
+- `review apply` emits machine-readable `RESULT` JSON (legacy `APPLIED` kept).
+- Reserved pages (`index.md`/`log.md`) excluded from all index channels.
+
 ## [0.1.0] - 2026-09-04
 
 First release.
