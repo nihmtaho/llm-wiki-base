@@ -94,6 +94,41 @@ llm-wiki-base upgrade --to v0.2.0 --wiki my-wiki
 
 Details: [upgrading.md](upgrading.md).
 
+## Uninstall
+
+```bash
+llm-wiki-base uninstall --dry-run     # preview everything that would be removed
+llm-wiki-base uninstall               # preview → confirm → remove
+llm-wiki-base uninstall --yes         # no prompt (scripts/CI)
+llm-wiki-base uninstall --keep-base   # drop configs only, keep ~/.llm-wiki-base runtime
+llm-wiki-base uninstall --path /some/wiki   # also clean a wiki made with --no-register
+llm-wiki-base uninstall --no-user-config     # leave ~/.claude, ~/.commandcode, … alone
+```
+
+Removes the **tool's footprint** across the machine:
+
+- the global runtime dir `~/.llm-wiki-base/` (`tools/ rag/ scripts/ .venv/
+  registry.toml`) — read for the wiki list *before* it is deleted;
+- the `llm-wiki-base-mcp` server entry from every wiki/project MCP config
+  (`.mcp.json`, `opencode.jsonc`, …) — other servers are kept, and a config file
+  that becomes empty is deleted;
+- every `llm-wiki-base-*` skill and its client links (`.claude/skills/`,
+  `.opencode/commands/`) + the skills manifest;
+- the marked research block `init project` wrote into the repo-root
+  `AGENTS.md` / `.claude/CLAUDE.md` (surrounding text is preserved);
+- each wiki's `.llm-wiki-base/` state dir (VERSION + tool backups).
+
+**Wiki data is never touched** — `raw/`, `wiki/`, `rag/`, `eval/`, your
+`.llm-wiki-base.toml`, `AGENTS.md`, and any skill you wrote yourself all survive.
+Skills and MCP entries are matched by their own markers (command shape, name
+prefix, manifest), not by guessing, so an unrelated server or skill that merely
+shares a name is left in place.
+
+The command cannot remove the Python package while it is running, so it prints
+the exact follow-up line (`uv tool uninstall llm-wiki-base` or
+`python -m pip uninstall llm-wiki-base`). It is idempotent — re-run to clean
+anything added later.
+
 ## Translation
 
 ```bash

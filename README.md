@@ -29,6 +29,7 @@ No external services, no data lock-in.
 - [Human authority](#human-authority)
 - [MCP bridge](#mcp-bridge)
 - [Upgrading](#upgrading)
+- [Uninstalling](#uninstalling)
 - [Safety & limitations](#safety--limitations)
 - [Contributing](#contributing)
 - [License](#license)
@@ -174,7 +175,12 @@ llm-wiki-base check eval --compare                        # retrieval A/B with v
 llm-wiki-base review apply <name> --by you
 llm-wiki-base upgrade --dry-run                           # skills+configs → newest GitHub tag
 llm-wiki-base translate enable --lang vi --lang ja
+llm-wiki-base uninstall --dry-run                         # preview tool footprint to remove
 ```
+
+`llm-wiki-base uninstall` removes the tool (global runtime + MCP entries + skills
+installed into each wiki) but **never** the ingested wiki data (`raw/`, `wiki/`,
+`rag/`).
 
 Full reference (init flags, per-wiki commands, proposals, translation, doctor):
 [`docs/cli.md`](docs/cli.md).
@@ -255,6 +261,23 @@ llm-wiki-base upgrade --to v0.2.0 --wiki my-wiki
 Upgrades every wiki in `registry.toml` to a GitHub tag (`vX.Y.Z`); project wikis
 also re-sync the `codebase` skill at the project root. Migration notes for old
 layouts and flag details: [`docs/upgrading.md`](docs/upgrading.md).
+
+## Uninstalling
+
+```bash
+llm-wiki-base uninstall --dry-run    # preview the tool footprint to remove
+llm-wiki-base uninstall             # preview → confirm → remove
+```
+
+Removes the **tool**, not your knowledge: the global runtime
+(`~/.llm-wiki-base/`), the `llm-wiki-base-mcp` entry from every wiki/project MCP
+config, the `llm-wiki-base-*` skills + client links, the marked root research
+block, and each wiki's `.llm-wiki-base/` state dir. Your ingested wiki data
+(`raw/`, `wiki/`, `rag/`), `.llm-wiki-base.toml`, `AGENTS.md`, and any skill you
+wrote yourself are all left untouched. It prints the follow-up line to remove the
+CLI package itself (`uv tool uninstall llm-wiki-base` / `pip uninstall`). Flags:
+`--yes`, `--keep-base`, `--path <wiki>`, `--no-user-config`. Full reference:
+[`docs/cli.md`](docs/cli.md#uninstall).
 
 ## Safety & limitations
 

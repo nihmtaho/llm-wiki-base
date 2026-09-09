@@ -84,6 +84,41 @@ def _ensure_root_research_block(root: Path) -> list[str]:
     return touched
 
 
+def has_research_block(path: Path) -> bool:
+    """File này chứa block research do llm-wiki-base ghi (read-only, cho dry-run)."""
+    if not path.is_file():
+        return False
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return RESEARCH_START in text and RESEARCH_END in text
+
+
+def strip_research_block(root: Path) -> list[str]:
+    """Xoá block research (giữa 2 marker) khỏi root AGENTS.md + .claude/CLAUDE.md.
+
+    Phép ngược của `_ensure_root_research_block`: chỉ cắt vùng giữa marker, giữ
+    nguyên phần user viết thêm. Nếu sau khi cắt file chỉ còn khoảng trắng → xoá
+    file (nó chỉ tồn tại vì block của ta). Trả danh sách rel đã đụng tới.
+    """
+    done: list[str] = []
+    for rel in ("AGENTS.md", ".claude/CLAUDE.md"):
+        path = root / rel
+        if not has_research_block(path):
+            continue
+        text = path.read_text(encoding="utf-8")
+        pre, _, rest = text.partition(RESEARCH_START)
+        _, _, post = rest.partition(RESEARCH_END)
+        merged = (pre.rstrip() + "\n" + post.lstrip()).strip()
+        if merged:
+            path.write_text(merged + "\n", encoding="utf-8")
+        else:
+            path.unlink()
+        done.append(rel)
+    return done
+
+
 def run(
     root: Path,
     wiki_subdir: str,
