@@ -15,6 +15,9 @@ Subcommands (canonical):
     serve --mcp      — run centralized MCP server (stdio) for AI tools
     translate        — enable/disable/status/check (TRANSLATING is the skill's job, not CLI)
     config show      — print effective config (defaults + .llm-wiki-base.toml + env overrides)
+    upgrade          — re-sync skills + agent configs of every registered wiki to a new tag
+    uninstall        — remove the TOOL (global runtime + per-wiki MCP entries + skills);
+                       wiki DATA (raw/, wiki/, rag/) is never deleted
 
 Every command above is DETERMINISTIC. llm-wiki-base never calls an LLM: content
 generation (ingest into pages, review, consolidate, translate, rerank) is done
@@ -29,6 +32,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import typer
+from rich.markup import escape
 from rich.prompt import Confirm, Prompt
 
 from llm_wiki_base import __version__, _ui
@@ -1287,6 +1291,126 @@ def status_cmd() -> None:
         ver = _upgrade.read_version(path) if path.is_dir() else None
         flag = "" if ver == latest else "  [yellow](old)[/yellow]"
         console.print(f"  [cyan]{w.get('name')}[/cyan]: {ver or '?'}{flag}")
+
+
+@app.command("uninstall")
+def uninstall_cmd(
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Do not ask before deleting (scripts/CI). Never prompts.",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run",
+        help="Only SHOW what would be removed, touch nothing.",
+    ),
+    keep_base: bool = typer.Option(
+        False, "--keep-base",
+        help="Keep the global runtime ~/.llm-wiki-base/ (reset configs only, "
+             "plan to reinstall right away).",
+    ),
+    path: list[Path] = typer.Option(
+        [], "--path", "-p",
+        help="Extra wiki/root folder to clean (for wikis made with --no-register). "
+             "Repeatable.",
+    ),
+    no_user_config: bool = typer.Option(
+        False, "--no-user-config",
+        help="Do not touch user-scope MCP config files (~/.claude, ~/.commandcode, …).",
+    ),
+) -> None:
+    """Remove llm-wiki-base from this machine: global runtime, MCP entries, skills.
+
+    Wiki DATA stays untouched — raw/, wiki/, rag/ (everything you ingested) are
+    never deleted. Only the tool's footprint goes: the global runtime dir, the
+    MCP server entries it wrote into each wiki/project, the llm-wiki-base-* skills
+    and their client links, the root research block, and each wiki's .llm-wiki-base/
+    state dir. The Python package itself cannot uninstall a running process, so the
+    command prints the exact `uv tool` / `pip` line to remove the CLI afterwards.
+
+    Examples:
+        llm-wiki-base uninstall --dry-run
+        llm-wiki-base uninstall
+        llm-wiki-base uninstall --yes
+        llm-wiki-base uninstall --keep-base --no-user-config
+    """
+    from llm_wiki_base import uninstall as _uninstall
+
+    plan = _uninstall.build_plan(extra_roots=list(path), include_user=not no_user_config)
+    facts = _uninstall.plan_facts(plan)
+
+    def _emit(lines: list[str]) -> None:
+        """In các dòng sự thật của plan với `markup=False`.
+
+        Path và tên wiki do user đặt — nếu chứa `[...]` thì Rich sẽ ăn nó như
+        style tag và làm mất nội dung. Tắt markup để in đúng nguyên văn.
+        """
+        for line in lines:
+            console.print(f"  {line}", markup=False)
+
+    if dry_run:
+        _ui.section("Will remove (dry-run — nothing touched)")
+        _emit(facts)
+        console.print()
+        console.print("[dim]Run without --dry-run to apply. Wiki data "
+                      "(raw/, wiki/, rag/) is never deleted.[/dim]")
+        return
+
+    if not plan.has_anything():
+        console.print("[dim]Nothing to remove: llm-wiki-base leaves no footprint "
+                      "on this machine (besides the package itself).[/dim]")
+        _print_cli_removal()
+        return
+
+    _ui.banner("llm-wiki-base uninstall",
+               "Removing the TOOL's footprint. Wiki data (raw/, wiki/, rag/) stays.")
+    _ui.section("About to remove")
+    _emit(facts)
+    console.print()
+    console.print("  [bold]Kept:[/bold] raw/ wiki/ rag/ eval/ AGENTS.md "
+                  ".llm-wiki-base.toml + every skill you wrote yourself.")
+    console.print()
+    if not yes and not Confirm.ask(
+            "[red]Remove all of the above?[/red]", default=False):
+        console.print("[dim]Cancelled — nothing was removed.[/dim]")
+        raise typer.Exit(0)
+
+    summary = _uninstall.apply_plan(plan, keep_base=keep_base)
+    rows = [
+        f"MCP entries removed: {summary.mcp_entries}",
+        f"skills removed:      {summary.skill_dirs} (+{summary.links} client links)",
+        f"research blocks:     {summary.research_blocks}",
+        f"state dirs:          {summary.state_dirs}",
+        f"global runtime:      {_base_outcome(plan, summary)}",
+    ]
+    rows += [f"[yellow]![/yellow] {escape(w)}" for w in summary.warnings]
+    _ui.done_panel("llm-wiki-base uninstalled", rows)
+    console.print()
+    _print_cli_removal()
+    console.print()
+    console.print("Your wikis are still on disk — reopen one and run "
+                  "[bold]llm-wiki-base setup[/bold] later to re-attach the tool.")
+
+
+def _base_outcome(plan, summary) -> str:
+    """Dòng tóm tắt cho global runtime: 'removed' / 'not present' / 'kept'.
+
+    'kept' bao gồm cả hai trường hợp: user chọn --keep-base, hoặc chốt chặn
+    `looks_like_base_dir` từ chối xoá một path không trông như runtime (lý do
+    chi tiết đã nằm trong `summary.warnings`).
+    """
+    if summary.base_dir_removed:
+        return "removed"
+    return "not present" if not plan.base_exists else "kept"
+
+
+def _print_cli_removal() -> None:
+    """Cách gỡ chính bản CLI — `uninstall` không tự xoá mình khi đang chạy."""
+    console.print("Last step — remove the [bold]llm-wiki-base[/bold] CLI itself "
+                  "(one of these, depending on how you installed it):")
+    console.print("  [cyan]uv tool uninstall llm-wiki-base[/cyan]   "
+                  "# if installed with uv")
+    console.print("  [cyan]python -m pip uninstall llm-wiki-base[/cyan]   "
+                  "# if installed with pip")
 
 
 def main() -> None:
