@@ -6,6 +6,12 @@ Versioning follows [SemVer 2.0.0](https://semver.org/); tags are `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-07
+
+### Changed
+
+- Promoted beta `0.1.1b1` to stable `0.1.1`.
+
 ## [0.1.1-beta.1] - 2026-09-07
 
 Beta for the `llm-wiki-base` rename. Please test.

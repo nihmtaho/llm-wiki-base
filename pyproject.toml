@@ -1,6 +1,6 @@
 [project]
 name = "llm-wiki-base"
-version = "0.1.1b1"
+version = "0.1.1"
 description = "LLM-maintained wiki with hybrid BM25+vector search, MCP bridge, multi-base init (personal/project)"
 readme = "README.md"
 requires-python = ">=3.10"
