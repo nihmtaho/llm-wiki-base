@@ -92,22 +92,28 @@ app.add_typer(_alias_proposals_app, name="proposals")
 app.add_typer(_tail_app)
 
 
+def _version_text() -> str:
+    return f"llm-wiki-base {__version__}"
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(_version_text())
+        raise typer.Exit()
+
+
 @app.callback()
 def _global_options(
     ctx: typer.Context,
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Facts only, no panels."),
     no_color: bool = typer.Option(False, "--no-color", help="Strip ANSI colors."),
     debug: bool = typer.Option(False, "--debug", help="Show full tracebacks on errors."),
+    version: bool = typer.Option(False, "--version", callback=_version_callback,
+                                 is_eager=True, help="Show version and exit."),
 ) -> None:
     _ui.set_quiet(quiet)
     _ui.set_no_color(no_color)
     _ui.set_debug(debug)
-
-
-def _version_callback(value: bool) -> None:
-    if value:
-        console.print(f"llm-wiki-base {__version__}")
-        raise typer.Exit()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1291,6 +1297,16 @@ def status_cmd() -> None:
         ver = _upgrade.read_version(path) if path.is_dir() else None
         flag = "" if ver == latest else "  [yellow](old)[/yellow]"
         console.print(f"  [cyan]{w.get('name')}[/cyan]: {ver or '?'}{flag}")
+
+
+@app.command("version")
+def version_cmd() -> None:
+    """Print the installed llm-wiki-base version.
+
+    Examples:
+        llm-wiki-base version
+    """
+    console.print(_version_text())
 
 
 @app.command("uninstall")

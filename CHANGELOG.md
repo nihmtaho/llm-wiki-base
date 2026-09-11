@@ -6,6 +6,8 @@ Versioning follows [SemVer 2.0.0](https://semver.org/); tags are `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-11
+
 ### Added
 
 - `llm-wiki-base uninstall`: removes the tool's footprint from the machine — the
@@ -15,6 +17,12 @@ Versioning follows [SemVer 2.0.0](https://semver.org/); tags are `vX.Y.Z`.
   never deleted. `--dry-run` previews, `--yes` skips the prompt, `--keep-base`
   and `--path`/`--no-user-config` narrow the scope; the command is idempotent and
   prints the follow-up line to remove the CLI package itself.
+
+### Fixed
+
+- `init` now writes `.llm-wiki-base.toml` at the wiki root. The bundled config
+  template kept a stale filename, so `init` silently skipped writing the file
+  and `doctor` warned that the wiki root had no config.
 
 ## [0.1.1] - 2026-09-07
 
