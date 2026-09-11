@@ -6,6 +6,7 @@ quickstart; concepts (two-layer architecture, authority tiers) are there.
 ## Global runtime
 
 ```bash
+llm-wiki-base version                   # print installed package version
 llm-wiki-base base install              # → ~/.llm-wiki-base/ (default)
 llm-wiki-base base install --force      # recreate venv + reinstall requirements
 llm-wiki-base base path                 # print current base dir
