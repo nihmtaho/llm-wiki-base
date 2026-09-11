@@ -55,6 +55,19 @@ def test_refreshes_stale_block(tmp_path):
     assert text.count(END) == 1
 
 
+def test_run_creates_wiki_config(tmp_path, isolated_env, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    root = tmp_path / "proj"
+    root.mkdir()
+    init_project.run(
+        root=root, wiki_subdir="project-wiki", clients=[],
+        skills_target="skip", skip_mcp=True, register=False, force=True,
+    )
+    cfg = root / "project-wiki" / ".llm-wiki-base.toml"
+    assert cfg.is_file()
+    assert 'profile = "codebase"' in cfg.read_text(encoding="utf-8")
+
+
 def test_run_hooks_root_block(tmp_path, isolated_env, monkeypatch):
     monkeypatch.chdir(tmp_path)
     root = tmp_path / "proj"

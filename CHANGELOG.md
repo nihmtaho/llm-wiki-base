@@ -6,6 +6,16 @@ Versioning follows [SemVer 2.0.0](https://semver.org/); tags are `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Added
+
+- `llm-wiki-base uninstall`: removes the tool's footprint from the machine — the
+  global runtime dir (`~/.llm-wiki-base/`), the MCP server entry from every
+  wiki/project config, and all `llm-wiki-base-*` skills + client links + the
+  marked root research block. Ingested **wiki data** (`raw/`, `wiki/`, `rag/`) is
+  never deleted. `--dry-run` previews, `--yes` skips the prompt, `--keep-base`
+  and `--path`/`--no-user-config` narrow the scope; the command is idempotent and
+  prints the follow-up line to remove the CLI package itself.
+
 ## [0.1.1] - 2026-09-07
 
 ### Changed

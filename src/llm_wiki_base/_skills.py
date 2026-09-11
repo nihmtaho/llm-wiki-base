@@ -43,6 +43,168 @@ CLIENT_LINKS: dict[str, tuple[str, str]] = {
 
 TARGETS = ("universal", "claude", "both", "skip")
 
+#: Mọi skill llm-wiki-base cài đều mang prefix này (wiki + codebase subset).
+#: Cùng `OBSOLETE_PREFIXES` là dấu vết để nhận bản của ta khi wiki không có manifest.
+OUR_SKILL_PREFIX = "llm-wiki-base-"
+
+
+def uninstall_skills(root: Path,
+                     clients: tuple[str, ...] | list[str] | None = None) -> list[str]:
+    """Gỡ TOÀN BỘ skill do llm-wiki-base cài khỏi `root` (ngược của `install_skills`).
+
+    Xoá các skill `llm-wiki-base-*` / prefix obsolete / có trong manifest ở
+    `<root>/.agents/skills/`, kèm link của client trỏ vào chúng, rồi xoá manifest.
+    KHÔNG đụng skill do user tự viết (không khớp prefix/manifest) và không bao giờ
+    xoá nội dung wiki — đây chỉ là footprint của tool.
+
+    Args:
+        root: thư mục chứa `.agents/skills/` (wiki root hoặc project root).
+        clients: client cần dọn link. Mặc định = mọi client có layout link.
+
+    Returns:
+        danh sách tên skill đã gỡ (rỗng nếu không có gì để gỡ).
+    """
+    skills_dir = root / ".agents" / "skills"
+    names = _our_skill_names(skills_dir)
+    # Dọn link TRƯỚC khi xoá bản gốc (link trỏ vào skills_dir — xoá trước để giữ
+    # resolved path hợp lệ, và không để lại symlink hỏng).
+    clients = list(clients) if clients is not None else list(CLIENT_LINKS)
+    removed_links = _unlink_clients(root, clients, names)
+
+    removed: list[str] = []
+    for name in names:
+        target = skills_dir / name
+        if target.is_symlink():
+            target.unlink()
+        elif target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
+        else:
+            continue
+        removed.append(name)
+    manifest = _manifest_path(skills_dir)
+    if manifest.is_file():
+        manifest.unlink()
+
+    # Dọn các rỗng để lại (chỉ khi đã không còn gì bên trong).
+    if removed or removed_links:
+        for rel, _mode in CLIENT_LINKS.values():
+            _rmtree_if_empty(root / rel, root)
+        _rmtree_if_empty(skills_dir, root)
+    return removed
+
+
+def _our_skill_names(skills_dir: Path) -> list[str]:
+    """Tên skill trong `.agents/skills/` được coi là của llm-wiki-base."""
+    if not skills_dir.is_dir():
+        return []
+    managed = set(_manifest_names(skills_dir))
+    out: list[str] = []
+    for entry in sorted(skills_dir.iterdir()):
+        name = entry.name
+        if name == MANIFEST:
+            continue
+        if not (entry.is_dir() or entry.is_symlink()):
+            continue
+        ours = (name.startswith(OUR_SKILL_PREFIX)
+                or name.startswith(OBSOLETE_PREFIXES)
+                or name in managed)
+        if ours:
+            out.append(name)
+    return out
+
+
+def find_our_skills(root: Path,
+                    clients: tuple[str, ...] | list[str] | None = None
+                    ) -> tuple[list[str], list[Path]]:
+    """Preview (read-only): (tên skill của ta, đường dẫn link client của ta) trong `root`.
+
+    Dùng cho dry-run — cùng tiêu chí nhận diện như `uninstall_skills`, không ghi đĩa.
+    """
+    skills_dir = root / ".agents" / "skills"
+    names = _our_skill_names(skills_dir)
+    links = _scan_our_links(root, list(clients) if clients is not None
+                            else list(CLIENT_LINKS), names)
+    return names, links
+
+
+def _scan_our_links(root: Path, clients: list[str], names: list[str]) -> list[Path]:
+    """Đường dẫn link/copy của client trỏ vào skill của ta (read-only)."""
+    skills_dir = root / ".agents" / "skills"
+    canonical = skills_dir.resolve()
+    keep = set(names)
+    found: list[Path] = []
+    for client in clients:
+        layout = CLIENT_LINKS.get(client)
+        if not layout:
+            continue
+        rel, mode = layout
+        dst_base = root / rel
+        if not dst_base.is_dir():
+            continue
+        for entry in sorted(dst_base.iterdir()):
+            skill_name = entry.name[:-3] if mode == "flat" else entry.name
+            points_at_us = False
+            if entry.is_symlink():
+                resolved = (entry.parent / entry.readlink()).resolve()
+                points_at_us = resolved.is_relative_to(canonical)
+            is_ours = points_at_us or skill_name in keep or skill_name.startswith(
+                (OUR_SKILL_PREFIX, *OBSOLETE_PREFIXES))
+            if is_ours and (entry.is_symlink() or entry.is_file() or entry.is_dir()):
+                found.append(entry)
+    return found
+
+
+def _unlink_clients(root: Path, clients: list[str], names: list[str]) -> int:
+    """Xoá link/copy của client trỏ vào skill của ta. Trả số link đã xoá."""
+    skills_dir = root / ".agents" / "skills"
+    canonical = skills_dir.resolve()
+    keep = set(names)
+    removed = 0
+    for client in clients:
+        layout = CLIENT_LINKS.get(client)
+        if not layout:
+            continue
+        rel, mode = layout
+        dst_base = root / rel
+        if not dst_base.is_dir():
+            continue
+        for entry in sorted(dst_base.iterdir()):
+            skill_name = entry.name[:-3] if mode == "flat" else entry.name
+            points_at_us = False
+            if entry.is_symlink():
+                resolved = (entry.parent / entry.readlink()).resolve()
+                points_at_us = resolved.is_relative_to(canonical)
+            is_ours = points_at_us or skill_name in keep or skill_name.startswith(
+                (OUR_SKILL_PREFIX, *OBSOLETE_PREFIXES))
+            if not is_ours:
+                continue
+            if entry.is_symlink() or entry.is_file():
+                entry.unlink(missing_ok=True)
+            elif entry.is_dir():
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                continue
+            removed += 1
+    return removed
+
+
+def _rmtree_if_empty(path: Path, stop_at: Path) -> None:
+    """Xoá `path` nếu nó rỗng (kể cả chỉ còn .DS_Store), rồi thử dọn cha tới `stop_at`."""
+    try:
+        p = path.resolve()
+        stop = stop_at.resolve()
+    except OSError:
+        return
+    while p != stop and p.is_dir():
+        leftover = [c for c in p.iterdir() if c.name != ".DS_Store"]
+        if leftover:
+            return
+        try:
+            p.rmdir()
+        except OSError:
+            return
+        p = p.parent
+
 
 def available_skills(subset: str) -> list[str]:
     """Tên skill có trong package data cho một subset ('wiki' | 'codebase' | 'all')."""

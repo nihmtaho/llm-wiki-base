@@ -2,6 +2,11 @@
 
 Skill linking nằm ở `_skills.link_clients()` (project-level symlink + prune) —
 không ở đây, để chỉ có MỘT chỗ định nghĩa layout skill của từng client.
+
+`remove_mcp_entry` là phép ngược của `install_mcp_config`: gỡ đúng entry của
+llm-wiki-base (`server_name`) ra khỏi file config per-project/personal wiki, giữ
+nguyên mọi server khác của user — dùng cho `llm-wiki-base uninstall`. Không bao
+giờ sửa một file không parse được: thà báo để user tự xoá còn hơn làm hỏng config.
 """
 import json
 from dataclasses import dataclass
@@ -199,3 +204,115 @@ def install_mcp_config(
     )
     return McpInstall(client=client, path=cfg_path, key=key, scope=scope,
                       server_name=server_name)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Gỡ (phép ngược của cài) — phục vụ `llm-wiki-base uninstall`
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: Dấu hiệu nhận entry DO llm-wiki-base ghi ra. So khớp trên toàn bộ command/args
+#: (không chỉ phần tử đầu) vì entry cũ có thể pin đường dẫn tuyệt đối tới base
+#: venv python (`~/.llm-wiki-base/tools/mcp_base_server.py`) thay vì `llm-wiki-base`
+#: trên PATH, và `--server-name` tùy biến vẫn trỏ về cùng một lệnh — nên nhận diện
+#: theo HÌNH của lệnh, không theo tên. Không đưa `mcp_server.py` trần vào: quá
+#: chung, dễ dính server của user.
+_OUR_MARKERS = ("llm-wiki-base", "mcp_base_server.py")
+
+
+def _flatten_command(entry: dict) -> str:
+    """Nối mọi phần tử `command` (list hoặc str) + `args` thành một chuỗi để dò marker."""
+    parts: list[str] = []
+    for field in ("command", "args"):
+        val = entry.get(field)
+        if isinstance(val, str):
+            parts.append(val)
+        elif isinstance(val, list):
+            parts += [str(v) for v in val]
+    return " ".join(parts)
+
+
+def is_our_entry(entry: object) -> bool:
+    """Entry này do llm-wiki-base tạo? = lệnh trỏ về CLI/script của ta.
+
+    Nhận diện theo hình lệnh (không theo tên server) để: (a) bắt được entry cài
+    bằng `--server-name` tùy biến; (b) KHÔNG bao giờ xoá nhầm server của user chỉ
+    vì trùng tên — lệnh của họ không chứa marker của ta nên được giữ lại.
+    """
+    if not isinstance(entry, dict):
+        return False
+    return any(m in _flatten_command(entry) for m in _OUR_MARKERS)
+
+
+def _load_servers(client: str, cfg_path: Path) -> tuple[dict | None, str, dict | None, str]:
+    """Đọc file config MCP → (data, key, servers, note). data=None khi không sửa được.
+
+    note ∈ {'absent', 'unreadable', 'no-key', 'ok'}. 'no-key' = file tốt nhưng
+    không có mục servers của client này (hoặc không phải object).
+    """
+    key = MCP_KEYS[client]
+    if not cfg_path.exists():
+        return None, key, None, "absent"
+    try:
+        data = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None, key, None, "unreadable"
+    if not isinstance(data, dict):
+        return None, key, None, "unreadable"
+    servers = data.get(key)
+    if not isinstance(servers, dict):
+        return data, key, None, "no-key"
+    return data, key, servers, "ok"
+
+
+def find_our_mcp_entries(client: str, cfg_path: Path) -> list[str]:
+    """Tên các server entry của llm-wiki-base trong 1 file config (read-only, dry-run)."""
+    _data, _key, servers, note = _load_servers(client, cfg_path)
+    if note != "ok" or servers is None:
+        return []
+    return [name for name, entry in servers.items() if is_our_entry(entry)]
+
+
+def remove_our_mcp_entries(client: str, cfg_path: Path) -> tuple[list[str], str]:
+    """Gỡ mọi entry MCP của llm-wiki-base khỏi 1 file config (mutating).
+
+    Trả (removed_names, note) với note ∈ {'removed', 'absent', 'unreadable',
+    'no-entry'}. Sau khi gỡ: servers rỗng → bỏ key container; file thành {}
+    → xoá file (không còn config nào, để lại chỉ là rác). Không đụng file hỏng.
+    """
+    data, key, servers, note = _load_servers(client, cfg_path)
+    if note != "ok" or data is None or servers is None:
+        return [], ("no-entry" if note in ("no-key",) else note)
+    removed = [name for name, entry in servers.items() if is_our_entry(entry)]
+    if not removed:
+        return [], "no-entry"
+    for name in removed:
+        servers.pop(name, None)
+    if not servers:
+        data.pop(key, None)
+    if data:
+        cfg_path.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    else:
+        cfg_path.unlink()
+    return removed, "removed"
+
+
+def remove_mcp_entry(
+    client: str,
+    project_root: Path,
+    server_name: str = CENTRALIZED_SERVER_NAME,
+) -> tuple[list[str], str, Path | None]:
+    """Gỡ entry MCP của llm-wiki-base khỏi file config project-scope của 1 client.
+
+    Wrapper quanh remove_our_mcp_entries cho project scope (giữ chữ ký cũ cho
+    caller). Trả (removed_names, note, cfg_path). `server_name` không dùng để
+    quyết định gỡ — nhận diện theo hình lệnh để dọn cả entry cài bằng --server-name
+    tùy biến (xem is_our_entry).
+    """
+    cfg_path = get_project_mcp_path(client, Path(project_root).resolve())
+    if cfg_path is None:
+        return [], "absent", None
+    names, note = remove_our_mcp_entries(client, cfg_path)
+    return names, note, cfg_path
