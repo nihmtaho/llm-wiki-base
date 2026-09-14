@@ -93,6 +93,23 @@ app.add_typer(_alias_proposals_app, name="proposals")
 app.add_typer(_tail_app)
 
 
+def _default_cwd() -> Path:
+    """Return cwd, or fall back to home if the cwd has been deleted.
+
+    ``Path.cwd()`` raises ``FileNotFoundError`` when the current directory
+    no longer exists (e.g. it was ``rm``-ed in a previous shell).  Calling
+    it at module-import time would make the whole module unimportable, so
+    we use this helper as a safe default for typer Options.
+    """
+    try:
+        return Path.cwd()
+    except FileNotFoundError:
+        from llm_wiki_base._ui import console
+        console.print("[yellow]warning: current dir deleted, falling back to "
+                      "~[/yellow]")
+        return Path.home()
+
+
 def _version_text() -> str:
     return f"llm-wiki-base {__version__}"
 
@@ -405,7 +422,7 @@ def init_personal(
 @setup_app.command("project")
 @init_app.command("project", hidden=True)
 def init_project(
-    root: Path = typer.Option(Path.cwd(), "--root", "-r", help="Project root (default: cwd)."),
+    root: Path = typer.Option(_default_cwd(), "--root", "-r", help="Project root (default: cwd)."),
     wiki_dir: str = typer.Option(
         "project-wiki", "--wiki-dir", "-w",
         help="Subfolder under the project root to hold wiki data.",
