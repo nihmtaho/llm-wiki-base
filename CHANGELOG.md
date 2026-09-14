@@ -10,6 +10,8 @@ Versioning follows [SemVer 2.0.0](https://semver.org/); tags are `vX.Y.Z`.
 
 ### Added
 
+- `llm-wiki-base version` (and the `--version` flag) prints the installed package
+  version.
 - `setup` now chooses clients with an interactive arrow-key menu and only checks the
   clients this machine can prove exist (binary on PATH, config dir, or the macOS app
   bundle), so it stops creating config for clients you don't have. Support grew from 4
