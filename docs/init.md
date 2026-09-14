@@ -35,11 +35,15 @@ Lệnh này tạo data-only trong cwd + cài MCP vào chính wiki này:
   nên 2 scope trùng nhau), kèm symlink cho client không đọc chuẩn Agent Skills
 - Đặt `[wiki].profile = personal` (+ `[wiki].lang` nếu truyền `--lang`)
 - Đăng ký wiki vào `~/.llm-wiki-base/registry.toml` (có `name` + `id` UUID)
-- Cài MCP entry (`llm-wiki-base-mcp`) vào file MCP per-project/personal wiki
-  (`.mcp.json` cho claude/commandcode, `opencode.jsonc` cho opencode — commit vào VCS được)
+- Cài MCP entry (`llm-wiki-base-mcp`) vào file MCP của từng client được chọn —
+  mặc định là file trong wiki (`.mcp.json` cho claude/commandcode/pi,
+  `opencode.jsonc`, `.zed/settings.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
+  `.codex/config.toml`) nên commit vào VCS được. Riêng `hermes` không có file
+  project-scope → ghi global `~/.hermes/config.yaml` (menu ghi rõ "global").
 
-Cờ đáng chú ý: `-c/--client` (claude | opencode | zed | commandcode, lặp lại được),
-`--no-mcp`, `--no-register` (test — không ghi registry thật),
+Cờ đáng chú ý: `-c/--client` (lặp lại được; **bỏ trống = những client detect được
+trên máy**, xem `llm-wiki-base setup clients`), `--no-mcp`,
+`--no-register` (test — không ghi registry thật),
 `--skills-target universal|claude|both|skip`, `--no-skills`, `--lang`, `--force`.
 
 ### Project wiki (subdir trong project)

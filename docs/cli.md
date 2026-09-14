@@ -15,11 +15,13 @@ llm-wiki-base base path                 # print current base dir
 ## Setup
 
 ```bash
-llm-wiki-base setup                                     # interactive wizard
+llm-wiki-base setup                                     # menu wizard (arrow keys)
+llm-wiki-base setup clients                             # what this machine can prove
 
 # Personal
 llm-wiki-base setup personal --name "My Knowledge" --lang vi
-llm-wiki-base setup personal -c claude -c commandcode   # MCP clients (repeatable)
+llm-wiki-base setup personal                            # -c omitted = detected clients
+llm-wiki-base setup personal -c claude -c commandcode   # exactly these, no guessing
 llm-wiki-base setup personal --no-mcp                   # skip MCP
 llm-wiki-base setup personal --no-register              # skip registry.toml (tests/scripts)
 llm-wiki-base setup personal --skills-target claude     # + symlink .claude/skills/

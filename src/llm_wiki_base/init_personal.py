@@ -12,14 +12,13 @@ Cwd = wiki dir. Tạo raw/, wiki/, rag/.rag_index/ + skeleton + .agents/skills/ 
 from pathlib import Path
 
 import typer
-from rich.prompt import Confirm
 
-from llm_wiki_base import _ui
+from llm_wiki_base import _prompt, _ui
 from llm_wiki_base._package_data import read_template, template_exists
 from llm_wiki_base._skills import install_skills
 from llm_wiki_base._ui import console
 from llm_wiki_base.base import get_base_dir
-from llm_wiki_base.config import supported_clients
+from llm_wiki_base.config import supported_clients, supports_user_scope
 from llm_wiki_base.config_file import ensure_wiki_identity
 from llm_wiki_base.installer import CENTRALIZED_SERVER_NAME, install_centralized_mcp
 from llm_wiki_base.registry import add_wiki
@@ -69,9 +68,17 @@ def run(
                f"base: [cyan]{base_dir}[/cyan] (global runtime)\n"
                f"MCP:  centralized server [cyan]{CENTRALIZED_SERVER_NAME}[/cyan]")
 
+    # 0. Validate clients BEFORE writing anything — same contract as `init_project`
+    #    (a typo in `-c` must not leave a half-created wiki behind).
+    for c in clients or []:
+        if c not in supported_clients():
+            _ui.err_panel(f"unknown client '{c}'. Supported: {supported_clients()}",
+                          "llm-wiki-base setup clients")
+            raise typer.Exit(1)
+
     # 1. Check empty
     if any(cwd.iterdir()) and not force:
-        if not Confirm.ask(f"{cwd} đã có file/dir. Tiếp tục (KHÔNG overwrite)?"):
+        if not _prompt.confirm(f"{cwd} đã có file/dir. Tiếp tục (KHÔNG overwrite)?"):
             raise SystemExit(1)
 
     # 2. Create data dirs only
@@ -151,30 +158,34 @@ def run(
                       "wiki này qua `wiki=`[/dim]")
 
     # 8. Install centralized MCP config vào per-project/personal wiki
-    #    (file MCP nằm trong chính wiki này, commit vào VCS được).
+    #    (file MCP nằm trong chính wiki này, commit vào VCS được). Client không có
+    #    file project-scope (hermes) ghi vào config toàn cục — `describe()` ghi rõ
+    #    GLOBAL để người dùng không tưởng nó cũng nằm trong wiki.
     mcp_results: list = []
     mcp_failed: list[tuple[str, str]] = []
     if not skip_mcp:
-        cli_clients = clients or ["claude"]
-        console.print()
-        console.print("[bold]Cài MCP vào per-project/personal wiki:[/bold]")
-        for client in cli_clients:
-            if client not in supported_clients():
-                console.print(f"  [red]✗[/red] unknown client '{client}'. "
-                              f"Hỗ trợ: {', '.join(supported_clients())}")
-                mcp_failed.append((client, "client không được hỗ trợ"))
-                continue
-            try:
-                res = install_centralized_mcp(client, scope="project",
-                                              project_root=cwd)
-                mcp_results.append(res)
-                console.print(f"  [green]✓[/green] {res.describe()}")
-            except ValueError as e:
-                # Client chưa có file MCP project-scope (vd zed) → bỏ qua, không lỗi.
-                console.print(f"  [dim]–[/dim] {client}: {e}")
-            except Exception as e:
-                mcp_failed.append((client, str(e)))
-                console.print(f"  [red]✗[/red] {client}: {e}")
+        cli_clients = list(clients or [])
+        if cli_clients:
+            console.print()
+            console.print("[bold]Cài MCP:[/bold]")
+            for client in cli_clients:
+                try:
+                    scope = "user" if supports_user_scope(client) else "project"
+                    res = install_centralized_mcp(client, scope=scope,
+                                                  project_root=cwd)
+                    mcp_results.append(res)
+                    console.print(f"  [green]✓[/green] {client}: {res.describe()}")
+                except ValueError as e:
+                    # Client không có file config ở scope đó → bỏ qua, không lỗi.
+                    console.print(f"  [dim]–[/dim] {client}: {e}")
+                except Exception as e:
+                    mcp_failed.append((client, str(e)))
+                    console.print(f"  [red]✗[/red] {client}: {e}")
+        else:
+            # Không suy ra "claude" từ đâu đó: chọn sai client còn tệ hơn không chọn.
+            console.print("  [yellow]![/yellow] không có client nào được chọn "
+                          "(--client rỗng và máy này không detect được AI client nào) → "
+                          "bỏ qua MCP. AI tool sẽ KHÔNG thấy wiki này qua `wiki=`.")
     else:
         console.print("  [yellow]![/yellow] MCP init skipped (--no-mcp) — "
                       "AI tool sẽ KHÔNG thấy wiki này qua `wiki=`")

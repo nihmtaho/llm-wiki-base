@@ -122,6 +122,10 @@ def is_debug() -> bool:
     return _state["debug"]
 
 
+def is_no_color() -> bool:
+    return _state["no_color"]
+
+
 def ok_panel(title: str, facts: list[str], next_steps: list[str] | None = None) -> None:
     """Success panel. Quiet mode prints facts only, no panel, no next steps."""
     if _state["quiet"]:
