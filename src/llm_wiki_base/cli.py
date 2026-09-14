@@ -5,6 +5,7 @@ Subcommands (canonical):
     setup project    — init project wiki + install centralized MCP per-project + register
     setup tools      — install global runtime to ~/.llm-wiki-base/ (once per machine)
     setup doctor     — check environment + show which commands need an AI tool
+    setup clients    — list AI clients detected on this machine + the file each writes
     wiki ingest      — wrapper: call global tools/ingest.py with cwd context
     wiki reindex     — wrapper: rebuild search DB + RAG (--full | --check)
     check lint       — wrapper: health check (--fix for safe fixes)
@@ -33,9 +34,9 @@ from pathlib import Path
 
 import typer
 from rich.markup import escape
-from rich.prompt import Confirm, Prompt
 
-from llm_wiki_base import __version__, _ui
+from llm_wiki_base import __version__, _prompt, _ui
+from llm_wiki_base import clients as _client_probe
 from llm_wiki_base._ui import console
 from llm_wiki_base.base import get_base_dir, get_base_python, install_base
 
@@ -123,7 +124,7 @@ def _global_options(
 
 @setup_app.callback(invoke_without_command=True)
 def setup_interactive(ctx: typer.Context) -> None:
-    """Slim wizard: location → profile → clients, then summary + confirm.
+    """Slim wizard: wiki type → location → which AI clients to install into.
     \f
     Examples:
         llm-wiki-base setup
@@ -131,16 +132,95 @@ def setup_interactive(ctx: typer.Context) -> None:
     """
     if ctx.invoked_subcommand is not None:
         return
-    _ui.banner("llm-wiki-base setup", "Create a new wiki in 3 questions.")
-    wtype = Prompt.ask("Wiki type", choices=["personal", "project"], default="personal")
+    _ui.banner("llm-wiki-base setup",
+               "Create a new wiki. Arrow keys move, space toggles, Enter accepts "
+               "what is pre-checked.")
+    wtype = _prompt.select("Wiki type", [
+        ("personal", "personal — a knowledge wiki of your own"),
+        ("project", "project — a wiki living inside a code repo"),
+    ], default="personal")
     if wtype == "personal":
         _slim_personal()
     else:
         _slim_project()
 
 
-def _parse_clients(client_str: str) -> list[str]:
-    return [c.strip() for c in client_str.split(",") if c.strip()]
+@setup_app.command("clients")
+def setup_clients_cmd() -> None:
+    """Show which AI clients this machine can prove, and where each would be written.
+
+    Examples:
+        llm-wiki-base setup clients
+    """
+    states = _client_probe.detect()
+    _ui.table("AI clients on this machine",
+              ["Client", "Installed", "Evidence", "Writes"],
+              _client_probe.as_rows(states))
+    found = [s.key for s in states if s.detected]
+    if found:
+        console.print(f"\n[dim]non-interactive:[/dim] llm-wiki-base setup personal "
+                      f"{_client_probe.client_flags(found)}")
+    else:
+        console.print("[yellow]nothing detected[/yellow] — `setup` will start with an "
+                      "empty selection; pick the clients you use anyway, or pass "
+                      "-c <client> explicitly.")
+
+
+def _ask_clients(preferred: list[str] | None = None) -> list[str]:
+    """Which AI clients get the MCP entry.
+
+    Pre-checks `preferred` (what `-c` already said) or — when the human named
+    nothing — exactly the clients this machine can prove, never a guessed
+    default. Undetected clients stay in the list with their failed probe as the
+    reason, because the human may know better than the probe. An empty answer is
+    a legitimate choice: the wiki is created without MCP.
+    """
+    states = _client_probe.detect()
+    return _prompt.checkbox("AI clients to receive the MCP entry",
+                            _client_probe.choices(states),
+                            checked=preferred if preferred is not None
+                            else [s.key for s in states if s.detected],
+                            hint="space toggles, enter confirms")
+
+
+def _resolve_clients(client: list[str] | None, interactive: bool = False) -> list[str]:
+    """The clients named by `-c`, or the ones this machine can prove.
+
+    `interactive` returns an empty list instead of the detected set so the
+    checkbox can pre-check detection itself — pre-filling here would make
+    "nothing chosen" and "everything detected" indistinguishable.
+    """
+    if client:
+        return list(client)
+    return [] if interactive else _client_probe.detected_keys()
+
+
+def _mcp_plan_fact(clients: list[str]) -> str:
+    """One summary line: which file each picked client writes.
+
+    Grouped by target so the three clients that share `.mcp.json` read as one
+    file, and any GLOBAL write is impossible to miss in the confirm screen.
+    """
+    by_key = {s.key: s for s in _client_probe.detect()}
+    order: list[str] = []
+    groups: dict[str, list[str]] = {}
+    for c in clients:
+        state = by_key.get(c)
+        label = f"GLOBAL {state.target}" if state and state.scope == "global" \
+            else (state.target if state else "?")
+        if label not in groups:
+            groups[label] = []
+            order.append(label)
+        groups[label].append(c)
+    return " · ".join(f"{p} ← {', '.join(groups[p])}" for p in order) or "(none)"
+
+
+def _client_flags_help() -> str:
+    from llm_wiki_base.config import supported_clients
+    return ("AI client for the centralized MCP (repeatable). Supported: "
+            + " | ".join(supported_clients())
+            + ". Omit every -c to install into the clients detected on this "
+              "machine (see: llm-wiki-base setup clients).")
 
 
 def _validate_clients(clients: list[str]) -> None:
@@ -149,20 +229,27 @@ def _validate_clients(clients: list[str]) -> None:
     for c in clients:
         if c not in supported:
             _ui.err_panel(f"unsupported client '{c}'. Supported: {supported}",
-                          "use --client claude (repeat -c per client)")
+                          "llm-wiki-base setup clients — or use --client claude "
+                          "(repeat -c per client)")
             raise typer.Exit(1)
 
 
 def _prompt_interactive_extras(lang: str, skills_target: str,
                                skip_mcp: bool) -> tuple[str, str, bool]:
     """Dropped questions, restored by `--interactive` (spec §5)."""
-    lang = Prompt.ask(
-        "Wiki language (the agent will write pages in this language)", default=lang)
-    skills_target = Prompt.ask(
-        "Skills target", choices=["universal", "claude", "both", "skip"],
-        default=skills_target)
-    do_mcp = Confirm.ask("Install MCP into the wiki?", default=not skip_mcp)
+    lang = _prompt.text("Wiki language (the agent will write pages in this language)",
+                        default=lang)
+    skills_target = _prompt.select("Skills target", SKILLS_TARGETS, default=skills_target)
+    do_mcp = _prompt.confirm("Install MCP into the wiki?", default=not skip_mcp)
     return lang, skills_target, not do_mcp
+
+
+SKILLS_TARGETS = [
+    ("universal", "universal — <wiki>/.agents/skills/ (+ client links)"),
+    ("claude", "claude — also symlink .claude/skills/"),
+    ("both", "both — plus .opencode/commands/"),
+    ("skip", "skip — install no skills"),
+]
 
 
 def _confirm_and_run_personal(cwd: Path, name: str | None, lang: str,
@@ -177,10 +264,10 @@ def _confirm_and_run_personal(cwd: Path, name: str | None, lang: str,
         f"Lang:     {lang}",
         f"Clients:  {', '.join(clients) if clients else '(none)'}",
         f"Skills:   {skills_target}",
-        f"MCP:      {'skip' if skip_mcp else 'install'}",
+        f"MCP:      {'skip (--no-mcp)' if skip_mcp else _mcp_plan_fact(clients)}",
     ]
     _ui.ok_panel("Ready to create", facts)
-    if not (yes or force) and not Confirm.ask("Create wiki?", default=True):
+    if not (yes or force) and not _prompt.confirm("Create wiki?", default=True):
         raise typer.Exit(0)
     # Summary confirm subsumes run()'s empty-dir confirm → force=True avoids a 2nd prompt.
     run_personal(cwd=cwd, name=name, force=True, skills_target=skills_target,
@@ -202,11 +289,11 @@ def _confirm_and_run_project(root: Path, wiki_subdir: str, lang: str,
         f"Lang:     {lang}",
         f"Clients:  {', '.join(clients) if clients else '(none)'}",
         f"Skills:   {skills_target}",
-        f"MCP:      {'skip' if skip_mcp else 'install'}",
+        f"MCP:      {'skip (--no-mcp)' if skip_mcp else _mcp_plan_fact(clients)}",
         f"Server:   {server_name}",
     ]
     _ui.ok_panel("Ready to create", facts)
-    if not (yes or force) and not Confirm.ask("Create wiki?", default=True):
+    if not (yes or force) and not _prompt.confirm("Create wiki?", default=True):
         raise typer.Exit(0)
     run_project(root=root, wiki_subdir=wiki_subdir, clients=clients,
                 server_name=server_name, force=True, skills_target=skills_target,
@@ -214,43 +301,34 @@ def _confirm_and_run_project(root: Path, wiki_subdir: str, lang: str,
 
 
 def _slim_personal() -> None:
-    """Q1 location (name) → Q3 clients; lang/skills/MCP use fixed defaults
+    """Location (name) → clients; lang/skills/MCP use fixed defaults
     (extras only via `setup personal|project --interactive`)."""
     cwd = Path.cwd()
-    name = Prompt.ask("Wiki name", default=cwd.name)
-    clients = _parse_clients(Prompt.ask(
-        "AI clients for MCP install (comma-separated)", default="claude"))
-    _validate_clients(clients)
-    lang, skills_target, skip_mcp = "en", "universal", False
-    _confirm_and_run_personal(cwd, name, lang, clients, skills_target, skip_mcp, yes=False)
+    name = _prompt.text("Wiki name", default=cwd.name)
+    _confirm_and_run_personal(cwd, name, "en", _ask_clients(), "universal",
+                              False, yes=False)
 
 
 def _slim_project() -> None:
-    """Q1 location (root + subdir) → Q3 clients; lang/skills/MCP use fixed defaults
+    """Location (root + subdir) → clients; lang/skills/MCP use fixed defaults
     (extras only via `setup personal|project --interactive`)."""
-    root = Path(Prompt.ask("Project root", default=str(Path.cwd()))).resolve()
-    wiki_subdir = Prompt.ask("Wiki subdir (under project root)", default="project-wiki")
-    clients = _parse_clients(Prompt.ask(
-        "AI clients for MCP install (comma-separated)", default="claude"))
-    _validate_clients(clients)
-    lang, skills_target, skip_mcp = "en", "universal", False
-    _confirm_and_run_project(root, wiki_subdir, lang, clients, skills_target, skip_mcp, yes=False)
+    root = Path(_prompt.text("Project root", default=str(Path.cwd()))).resolve()
+    wiki_subdir = _prompt.text("Wiki subdir (under project root)", default="project-wiki")
+    _confirm_and_run_project(root, wiki_subdir, "en", _ask_clients(), "universal",
+                             False, yes=False)
 
 
 @setup_app.command("personal")
 @init_app.command("personal", hidden=True)
 def init_personal(
-    here: bool = typer.Option(True, "--here", help="Init at cwd (in-place)."),
     name: str | None = typer.Option(None, "--name", "-n", help="Wiki name (default: folder name)."),
     lang: str | None = typer.Option(
         None, "--lang", "-l",
         help="Wiki language written to [wiki].lang (e.g. vi, en). The agent writes pages in this language.",
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation when the dir has content."),
-    client: list[str] = typer.Option(
-        ["claude"], "--client", "-c",
-        help="AI client for the centralized MCP: claude | opencode | zed | commandcode. "
-             "Repeat: -c claude -c commandcode.",
+    client: list[str] | None = typer.Option(
+        None, "--client", "-c", help=_client_flags_help(),
     ),
     no_mcp: bool = typer.Option(False, "--no-mcp", help="Skip MCP install into the per-project/personal wiki."),
     skills_target: str = typer.Option(
@@ -284,13 +362,9 @@ def init_personal(
     lang_val = lang or "en"
     target = "skip" if no_skills else skills_target
     skip_mcp_val = no_mcp
-    clients = list(client)
+    clients = _resolve_clients(client, interactive)
     if interactive:
-        client_str = Prompt.ask(
-            "AI clients for MCP install (comma-separated)",
-            default=",".join(clients) if clients else "claude",
-        )
-        clients = _parse_clients(client_str)
+        clients = _ask_clients(clients or None)
         lang_val, target, skip_mcp_val = _prompt_interactive_extras(
             lang_val, target, skip_mcp_val)
     _validate_clients(clients)
@@ -311,9 +385,8 @@ def init_project(
         None, "--lang", "-l",
         help="Wiki language written to [wiki].lang (e.g. vi, en).",
     ),
-    client: list[str] = typer.Option(
-        ["claude"], "--client", "-c",
-        help="AI client for the centralized MCP: claude | opencode | zed | commandcode.",
+    client: list[str] | None = typer.Option(
+        None, "--client", "-c", help=_client_flags_help(),
     ),
     server_name: str = typer.Option(
         "llm-wiki-base-mcp", "--server-name", "-s",
@@ -349,13 +422,9 @@ def init_project(
     lang_val = lang or "en"
     target = "skip" if no_skills else skills_target
     skip_mcp_val = no_mcp
-    clients = list(client)
+    clients = _resolve_clients(client, interactive)
     if interactive:
-        client_str = Prompt.ask(
-            "AI clients for MCP install (comma-separated)",
-            default=",".join(clients) if clients else "claude",
-        )
-        clients = _parse_clients(client_str)
+        clients = _ask_clients(clients or None)
         lang_val, target, skip_mcp_val = _prompt_interactive_extras(
             lang_val, target, skip_mcp_val)
     _validate_clients(clients)
@@ -434,7 +503,7 @@ def wiki_remove_cmd(
         _ui.err_panel(f"wiki '{name}' is not in the registry", "llm-wiki-base wiki list")
         raise typer.Exit(1)
     if not force:
-        if not Confirm.ask(f"Remove '{name}' from the registry? (files are kept)"):
+        if not _prompt.confirm(f"Remove '{name}' from the registry? (files are kept)"):
             raise typer.Exit(0)
     if remove_wiki(name):
         console.print(f"[green]✓[/green] removed '{name}' from registry.")
@@ -1183,6 +1252,17 @@ def doctor_cmd(
     else:
         ok("no pending proposals")
 
+    _ui.section("AI clients (what `setup` pre-checks)")
+    states = _client_probe.detect()
+    _ui.table("", ["Client", "Installed", "Evidence", "Writes"],
+              _client_probe.as_rows(states))
+    console.print("  [dim]Evidence = bằng chứng client có trên máy (binary trên PATH, "
+                  "config dir, hoặc app bundle). Writes = file `setup` sẽ sửa; "
+                  "'global' là config cá nhân của tool đó, không phải trong wiki.[/dim]")
+    if not any(s.detected for s in states):
+        warn("no AI client detected → `setup` starts with an empty MCP selection; "
+             "pick the tools you actually use, or pass -c <client>")
+
     _ui.section("Needs an AI tool (CLI cannot do this)")
     console.print("  llm-wiki-base never calls an LLM. Content-generating steps run on the")
     console.print("  open AI tool's LLM, via skills installed at .agents/skills/:")
@@ -1385,7 +1465,7 @@ def uninstall_cmd(
     console.print("  [bold]Kept:[/bold] raw/ wiki/ rag/ eval/ AGENTS.md "
                   ".llm-wiki-base.toml + every skill you wrote yourself.")
     console.print()
-    if not yes and not Confirm.ask(
+    if not yes and not _prompt.confirm(
             "[red]Remove all of the above?[/red]", default=False):
         console.print("[dim]Cancelled — nothing was removed.[/dim]")
         raise typer.Exit(0)

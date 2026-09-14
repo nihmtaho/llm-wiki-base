@@ -11,6 +11,7 @@ authors = [
 dependencies = [
     "typer>=0.12",
     "rich>=13",
+    "questionary>=1.10",     # arrow-key menus in `setup` (falls back to rich when no TTY)
     "mcp>=1.9,<2",
     "fastembed>=0.5",
     "numpy",

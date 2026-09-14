@@ -9,15 +9,22 @@ nguyên mọi server khác của user — dùng cho `llm-wiki-base uninstall`. K
 giờ sửa một file không parse được: thà báo để user tự xoá còn hơn làm hỏng config.
 """
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from llm_wiki_base import _blocks
 from llm_wiki_base.base import get_base_dir
 from llm_wiki_base.config import (
     MCP_KEYS,
+    client_format,
     get_mcp_config_path,
     get_project_mcp_path,
+    supports_user_scope,
 )
+
+#: Formats that this module edits as TEXT (managed block) instead of round-tripping.
+BLOCK_FORMATS = ("toml", "yaml")
 
 CENTRALIZED_SERVER_NAME = "llm-wiki-base-mcp"
 CENTRALIZED_SERVER_SCRIPT = "mcp_base_server.py"
@@ -62,9 +69,20 @@ class McpInstall:
     def __str__(self) -> str:  # noqa: D105
         return str(self.path)
 
+    #: Where a scope actually writes, in the words the human needs before agreeing.
+    _WHERE = {
+        "project": "project: file nằm trong wiki, commit vào VCS được",
+        "user": "GLOBAL: config cá nhân của tool này, mọi project đều thấy nó",
+    }
+
     def describe(self) -> str:
-        """Một dòng, đủ để user biết vừa sửa file nào và vào đâu trong file đó."""
-        return (f"{self.path}  [project: per-project/personal wiki, commit vào VCS được]  "
+        """Một dòng, đủ để user biết vừa sửa file nào và vào đâu trong file đó.
+
+        KHÔNG dùng ngoặc vuông: caller in kết quả qua rich, mà `[project: …]`
+        khớp regex markup của rich (chữ thường + `:` + `-` + space) nên cả cụm bị
+        ăn mất như một style tag — đúng cái người dùng cần đọc lại biến mất.
+        """
+        return (f"{self.path}  ·  {self._WHERE.get(self.scope, self.scope)}  ·  "
                 f"key={self.key}.{self.server_name}")
 
 
@@ -76,38 +94,54 @@ def install_centralized_mcp(
 ) -> McpInstall:
     """Cài centralized MCP server entry cho 1 client (idempotent).
 
-    Ghi vào file MCP per-project/personal wiki (`<root>/.mcp.json`,
-    `opencode.jsonc`, … — commit vào VCS được). Server này đọc registry.toml
-    để biết các wiki có sẵn — không cần cài lại cho mỗi wiki. Ghi đè entry
-    nếu đã tồn tại (overwrite bởi server_name).
+    Mặc định ghi vào file MCP per-project/personal wiki (`<root>/.mcp.json`,
+    `opencode.jsonc`, `.zed/settings.json`, … — commit vào VCS được). Server này
+    đọc registry.toml để biết các wiki có sẵn — không cần cài lại cho mỗi wiki.
+    Ghi đè entry nếu đã tồn tại (overwrite bởi server_name).
 
     Args:
-        scope: luôn 'project' (giữ param để không vỡ caller cũ truyền
-            scope='project'; truyền 'user' → ValueError).
+        scope: 'project' (mặc định) hoặc 'user'. 'user' chỉ hợp lệ với client
+            được đánh dấu `allow_user_scope` trong `config.CLIENT_PATHS` (hermes:
+            không có file project-scope nào) — mọi client khác vẫn bị từ chối.
         project_root: root của wiki (personal) hoặc repo (project) — nơi chứa
             file MCP project-scope.
 
     Raises:
-        ValueError: scope khác 'project', thiếu project_root, hoặc client
-            không có project-scope MCP config.
+        ValueError: scope 'user' cho client không được phép, thiếu project_root,
+            hoặc client không có file config ở scope đó.
     """
-    if scope != "project":
-        raise ValueError(f"llm-wiki-base chỉ cài MCP vào per-project/personal wiki "
-                         f"(scope='project'), nhận: {scope!r}")
     base_dir = get_base_dir()
     cmd = centralized_server_cmd()
     env = centralized_server_env(base_dir)
     cwd = str(base_dir)
-
-    if project_root is None:
-        raise ValueError("cài MCP cần project_root (thư mục chứa wiki)")
-    cfg_path = get_project_mcp_path(client, Path(project_root).resolve())
-    if cfg_path is None:
-        raise ValueError(
-            f"{client} không có project-scope MCP config — bỏ qua client này")
+    cfg_path = _scope_target(client, scope, project_root)
 
     return install_mcp_config(client, server_name, cmd, env, cwd, cfg_path=cfg_path,
                               scope=scope)
+
+
+def _scope_target(client: str, scope: str, project_root: Path | None) -> Path:
+    """File config mà `scope` trỏ tới cho client này.
+
+    Raises:
+        ValueError: scope 'user' cho client không được phép ghi toàn cục,
+            thiếu project_root, hoặc client không có file ở scope đó.
+    """
+    if scope == "user":
+        if not supports_user_scope(client):
+            raise ValueError(
+                f"{client} chỉ cài được ở project scope — không cho phép ghi vào "
+                f"config toàn cục (scope='user')")
+        return get_mcp_config_path(client)
+    if scope == "project":
+        if project_root is None:
+            raise ValueError("cài MCP cần project_root (thư mục chứa wiki)")
+        cfg = get_project_mcp_path(client, Path(project_root).resolve())
+        if cfg is None:
+            raise ValueError(
+                f"{client} không có project-scope MCP config — bỏ qua client này")
+        return cfg
+    raise ValueError(f"scope phải là 'project' hoặc 'user', nhận: {scope!r}")
 
 
 def _build_mcp_entry(client: str, command: list[str], env: dict, cwd: str) -> dict:
@@ -124,7 +158,8 @@ def _build_mcp_entry(client: str, command: list[str], env: dict, cwd: str) -> di
             "enabled": True,
             "environment": env,
         }
-    elif client == "zed":
+    elif client in ("zed", "hermes"):
+        # Schema của hai client này KHÔNG có `cwd` — truyền vào là key lạ.
         entry = {
             "command": command[0],
             "args": command[1:],
@@ -139,8 +174,16 @@ def _build_mcp_entry(client: str, command: list[str], env: dict, cwd: str) -> di
             "args": command[1:],
             "env": env,
         }
+    elif client == "cursor":
+        # Cursor bắt buộc `type` cho stdio server và không nhận `cwd`.
+        entry = {
+            "type": "stdio",
+            "command": command[0],
+            "args": command[1:],
+            "env": env,
+        }
     else:
-        # claude (và fallback cho client tương lai dùng shape "mcpServers")
+        # claude, pi, copilot (key `servers`), codex — shape "mcpServers" + cwd.
         entry = {
             "command": command[0],
             "args": command[1:],
@@ -162,48 +205,99 @@ def install_mcp_config(
     cfg_path: Path | None = None,
     scope: str = "user",
 ) -> McpInstall:
-    """Merge 1 server entry vào client config JSON.
+    """Merge 1 server entry vào client config.
 
-    Idempotent: nếu `server_name` đã tồn tại → ghi đè entry đó. KHÔNG phá server khác.
-    Trả `McpInstall` (path + key + scope) để caller in ra vị trí thật.
+    Idempotent: nếu `server_name` đã tồn tại → ghi đè entry đó. KHÔNG phá server
+    khác. Trả `McpInstall` (path + key + scope) để caller in ra vị trí thật.
+
+    Hai chiến lược theo `config.client_format(client)`:
+      json  → load / merge / dump (file JSON không có comment để mất).
+      toml/yaml → SỬA TEXT trong managed block (`_blocks`): round-trip sẽ in lại
+      cả file từ dict và xoá sạch comment của người dùng.
     """
     cfg_path = cfg_path or get_mcp_config_path(client)
+    key = MCP_KEYS[client]
+    entry = _build_mcp_entry(client, command, env, cwd)
+    fmt = client_format(client)
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    if fmt in BLOCK_FORMATS:
+        return _install_block(client, fmt, key, server_name, entry, cfg_path, scope)
+    return _install_json(client, key, server_name, entry, cwd, cfg_path, scope)
 
+
+def _install_block(client: str, fmt: str, key: str, server_name: str, entry: dict,
+                   cfg_path: Path, scope: str) -> McpInstall:
+    text = cfg_path.read_text(encoding="utf-8") if cfg_path.exists() else ""
+    _warn_moved_cwd(client, server_name,
+                    _blocks.entry_of(fmt, text, key, server_name), entry)
+    # upsert/validate raise ValueError rather than write a file we would break.
+    new_text = _blocks.upsert(fmt, text, key, server_name, entry)
+    _blocks.validate(fmt, new_text, cfg_path)
+    cfg_path.write_text(new_text, encoding="utf-8")
+    return McpInstall(client=client, path=cfg_path, key=key, scope=scope,
+                      server_name=server_name)
+
+
+def _install_json(client: str, key: str, server_name: str, entry: dict, cwd: str,
+                  cfg_path: Path, scope: str) -> McpInstall:
+    data: dict = {}
     if cfg_path.exists():
+        raw = cfg_path.read_text(encoding="utf-8")
         try:
-            data = json.loads(cfg_path.read_text(encoding="utf-8"))
+            data = json.loads(raw)
         except ValueError as e:
+            if _looks_commented(raw):
+                raise ValueError(
+                    f"{cfg_path} là JSON/JSONC có comment ({e}) — llm-wiki-base "
+                    f"không viết lại file có comment vì sẽ mất trắng. Thêm entry "
+                    f"theo mẫu templates/mcp/{client}.mcp.sample.json rồi chạy lại "
+                    f"hoặc mở tool để confirm.") from None
             raise ValueError(
                 f"{cfg_path} không phải JSON hợp lệ ({e}) — sửa file tay rồi chạy lại, "
                 f"llm-wiki-base KHÔNG tự ghi đè file hỏng") from None
         if not isinstance(data, dict):
             raise ValueError(f"{cfg_path} phải là JSON object, đang là {type(data).__name__}")
-    else:
-        data = {}
 
-    key = MCP_KEYS[client]
     servers = data.setdefault(key, {})
     if not isinstance(servers, dict):
         raise ValueError(f"{cfg_path}: key {key!r} không phải object — không ghi được")
 
-    # Detect overwrite với cwd khác — cảnh báo cho caller
     prev = servers.get(server_name)
-    if prev and isinstance(prev, dict) and prev.get("cwd") and prev["cwd"] != cwd:
-        import warnings
-        warnings.warn(
-            f"{client}: MCP server '{server_name}' đã tồn tại với cwd={prev['cwd']!r}, "
-            f"đang ghi đè với cwd={cwd!r}",
-            stacklevel=2,
-        )
+    _warn_moved_cwd(client, server_name,
+                    prev if isinstance(prev, dict) else None, entry)
 
-    servers[server_name] = _build_mcp_entry(client, command, env, cwd)
+    servers[server_name] = entry
     cfg_path.write_text(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
     return McpInstall(client=client, path=cfg_path, key=key, scope=scope,
                       server_name=server_name)
+
+
+def _looks_commented(raw: str) -> bool:
+    """Any line whose first characters are // or /* → JSONC, not plain JSON."""
+    return bool(re.search(r"^[ \t]*(//|/\*)", raw, re.MULTILINE))
+
+
+def _warn_moved_cwd(client: str, server_name: str,
+                    prev: dict | None, new: dict) -> None:
+    """Cảnh báo khi ghi đè một entry đang trỏ tới base dir khác.
+
+    Only meaningful when BOTH sides carry a `cwd`: several clients share one file
+    (`claude`/`commandcode`/`pi` → `.mcp.json`) with different schemas, so a
+    commandcode-shaped entry has no `cwd` at all and must not read as "moved".
+    """
+    if not prev or not new.get("cwd") or not prev.get("cwd"):
+        return
+    if prev["cwd"] == new["cwd"]:
+        return
+    import warnings
+    warnings.warn(
+        f"{client}: MCP server '{server_name}' đã tồn tại với cwd={prev['cwd']!r}, "
+        f"đang ghi đè với cwd={new['cwd']!r}",
+        stacklevel=3,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -264,8 +358,34 @@ def _load_servers(client: str, cfg_path: Path) -> tuple[dict | None, str, dict |
     return data, key, servers, "ok"
 
 
+def _block_read(client: str, cfg_path: Path) -> tuple[str, str, str]:
+    """(text, key, note) cho file toml/yaml — note ∈ {'absent','unreadable','ok'}."""
+    key = MCP_KEYS[client]
+    if not cfg_path.exists():
+        return "", key, "absent"
+    try:
+        return cfg_path.read_text(encoding="utf-8"), key, "ok"
+    except OSError:
+        return "", key, "unreadable"
+
+
+def _block_our_names(fmt: str, text: str, key: str) -> list[str]:
+    """Tên server trong file block-format mà lệnh trỏ về llm-wiki-base.
+
+    Marker được dò trên đúng phần text của entry đó (không phải cả file), nên
+    server của user vẫn được giữ kể cả khi file có chứa chữ 'llm-wiki-base' ở
+    chỗ khác.
+    """
+    return [name for name in _blocks.names(fmt, text, key)
+            if any(m in _blocks.child_text(fmt, text, key, name) for m in _OUR_MARKERS)]
+
+
 def find_our_mcp_entries(client: str, cfg_path: Path) -> list[str]:
     """Tên các server entry của llm-wiki-base trong 1 file config (read-only, dry-run)."""
+    fmt = client_format(client)
+    if fmt in BLOCK_FORMATS:
+        text, key, note = _block_read(client, cfg_path)
+        return [] if note != "ok" else _block_our_names(fmt, text, key)
     _data, _key, servers, note = _load_servers(client, cfg_path)
     if note != "ok" or servers is None:
         return []
@@ -279,6 +399,9 @@ def remove_our_mcp_entries(client: str, cfg_path: Path) -> tuple[list[str], str]
     'no-entry'}. Sau khi gỡ: servers rỗng → bỏ key container; file thành {}
     → xoá file (không còn config nào, để lại chỉ là rác). Không đụng file hỏng.
     """
+    fmt = client_format(client)
+    if fmt in BLOCK_FORMATS:
+        return _remove_block_entries(fmt, client, cfg_path)
     data, key, servers, note = _load_servers(client, cfg_path)
     if note != "ok" or data is None or servers is None:
         return [], ("no-entry" if note in ("no-key",) else note)
@@ -296,6 +419,30 @@ def remove_our_mcp_entries(client: str, cfg_path: Path) -> tuple[list[str], str]
         )
     else:
         cfg_path.unlink()
+    return removed, "removed"
+
+
+def _remove_block_entries(fmt: str, client: str, cfg_path: Path) -> tuple[list[str], str]:
+    """Phép ngược của `_install_block`: cắt managed block, giữ phần còn lại nguyên."""
+    text, key, note = _block_read(client, cfg_path)
+    if note != "ok":
+        return [], note
+    removed = _block_our_names(fmt, text, key)
+    if not removed:
+        return [], "no-entry"
+    new_text = text
+    for name in removed:
+        new_text = _blocks.drop(fmt, new_text, key, name)
+    if not new_text.strip():
+        cfg_path.unlink()
+        return removed, "removed"
+    try:
+        _blocks.validate(fmt, new_text, cfg_path)
+    except ValueError:
+        # Kết quả gỡ bị hỏng file (thường vì file vốn đã không parse được):
+        # thà không đụng vào còn hơn viết thứ gì đó tệ hơn.
+        return [], "unreadable"
+    cfg_path.write_text(new_text, encoding="utf-8")
     return removed, "removed"
 
 
