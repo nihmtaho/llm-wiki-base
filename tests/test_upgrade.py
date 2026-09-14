@@ -52,6 +52,18 @@ def test_no_tags(tmp_path):
     assert U.core_tag(core) is None
 
 
+def test_latest_tag_ignores_peeled_refs(tmp_path, monkeypatch):
+    """Annotated tags surface as `vX.Y.Z^{}` in `ls-remote` — must not win."""
+    core = _fake_core(tmp_path)
+    peeled = ("deadbeef\trefs/tags/v0.3.0\n"
+              "deadbeef\trefs/tags/v0.3.0^{}\n"
+              "deadbeef\trefs/tags/v0.1.0\n"
+              "deadbeef\trefs/tags/v0.1.0^{}\n")
+    monkeypatch.setattr(U, "_git", lambda c, *a: subprocess.CompletedProcess(
+        ["git"], 0, stdout=peeled.encode(), stderr=b""))
+    assert U.latest_tag(core) == "v0.3.0"
+
+
 def _fake_wiki(base: Path, name: str = "w") -> Path:
     wiki = base / name
     (wiki / ".agents" / "skills" / "old-skill").mkdir(parents=True)

@@ -88,11 +88,18 @@ def latest_tag(core: Path) -> str | None:
     except (OSError, subprocess.SubprocessError):
         pass
     proc = _git(core, "ls-remote", "--tags", "origin")
-    remote = (
-        [t.split("refs/tags/")[-1] for t in proc.stdout.decode().split() if "refs/tags/" in t]
-        if proc.returncode == 0
-        else []
-    )
+    remote: list[str] = []
+    if proc.returncode == 0:
+        for ref in proc.stdout.decode().split():
+            if "refs/tags/" not in ref:
+                continue
+            name = ref.split("refs/tags/")[-1]
+            # `ls-remote` trả cả ref đã bóc (`v0.1.3^{}`) cho annotated tag —
+            # cùng tag, không phải bản mới; giữ lại sẽ làm `--to latest` so tag
+            # lệch (`v0.1.3^{}` != `v0.1.3`) và stamp VERSION sai.
+            if name.endswith("^{}"):
+                continue
+            remote.append(name)
     known = [t for t in {*local_tags(core), *remote} if parse_tag(t)]
     return max(known, key=parse_tag) if known else None  # type: ignore[arg-type]
 
