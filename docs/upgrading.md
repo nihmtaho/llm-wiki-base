@@ -23,6 +23,11 @@ Project wikis additionally re-sync the `codebase` skill (`llm-wiki-base-research
 …) at the project root (nearest ancestor holding it), with its own backup +
 `VERSION` under the same timestamp.
 
+Once per run (not per wiki), the machine-global skill
+`llm-wiki-base-contribute` is re-synced into `~/.agents/skills/` +
+`~/.claude/skills/` — it is user-scoped, so it has no per-wiki backup or
+`VERSION` (the package copy is the single source of truth).
+
 Safety rules:
 
 - Apply refuses when the running core is not checked out at the target tag and
@@ -48,6 +53,10 @@ llm-wiki-base doctor                                     # 4. see what's left
   `llm-wiki-base-*`. Re-init **deletes** old `wiki-project-*` and keeps your own
   skills. Project wikis additionally get `llm-wiki-base-research` at the **repo
   root**.
+- **New global skill** `llm-wiki-base-contribute` lands in `~/.agents/skills/` +
+  `~/.claude/skills/` (one copy per machine, not per wiki). `upgrade` installs it
+  automatically; on an older install, `llm-wiki-base setup tools` adds it without
+  touching any wiki.
 - **`vector = true`** became the new-template default. Old wikis stay `false`
   until you `eval --compare`; enabling needs `reindex --full` to build
   `rag/.rag_index`.

@@ -36,7 +36,7 @@ Top-level folders under `wiki/`, **unbounded**, auto-detected from raw content (
 
 ## Skills
 
-Installed by `llm-wiki-base init` into `.agents/skills/` (canonical; symlinked for Claude/OpenCode). Mode comes from `[wiki].profile` in `.llm-wiki-base.toml` — skill names don't vary by profile.
+Installed by `llm-wiki-base init` into `.agents/skills/` (canonical; symlinked for Claude/OpenCode) — except `llm-wiki-base-contribute`, which is user-global (not wiki-scoped). Mode comes from `[wiki].profile` in `.llm-wiki-base.toml` — skill names don't vary by profile.
 
 | skill | scope | job |
 |---|---|---|
@@ -47,9 +47,13 @@ Installed by `llm-wiki-base init` into `.agents/skills/` (canonical; symlinked f
 | `llm-wiki-base-review` | wiki | semantic gaps: contradiction, stale, trust gap → `wiki/alerts/` |
 | `llm-wiki-base-consolidate` | wiki | merge scraps → canonical concepts (additive) |
 | `llm-wiki-base-translate` | wiki | translate pages into `[translate].langs` |
+| `llm-wiki-base-contribute` | **global** (`~/.agents/skills/` + `~/.claude/skills/`) | draft schema-valid pages → stage via MCP (`wiki_submit` → `raw/inbox/`, `wiki_propose_edit` → `.proposals/`) |
 | `llm-wiki-base-research` | **codebase root** | cross-wiki research via centralized MCP |
 
-`llm-wiki-base-research` lives at the repo root (it must see all wikis). Only the skill layer needs an LLM; CLI/Python is deterministic.
+`llm-wiki-base-research` lives at the repo root (it must see all wikis), and
+`llm-wiki-base-contribute` lives in the user's home (one copy per machine, serves
+any wiki; skip with `--no-contribute`). Only the skill layer needs an LLM;
+CLI/Python is deterministic.
 
 ## Operations
 

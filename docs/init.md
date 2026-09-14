@@ -13,8 +13,11 @@ Lệnh này:
 - Copy `tools/`, `rag/`, `scripts/` từ package vào base
 - Copy `requirements.txt`
 - Tạo `.venv/` + pip install
+- Cài skill **global** `llm-wiki-base-contribute` vào `~/.agents/skills/` +
+  `~/.claude/skills/` (bỏ bằng `--no-contribute`)
 
-Idempotent — chạy lại để sync code mới nhất.
+Idempotent — chạy lại để sync code mới nhất. Đây cũng là cách thêm skill global
+vào một máy đã setup từ trước.
 
 ## 2. Chọn loại wiki
 
@@ -33,6 +36,9 @@ Lệnh này tạo data-only trong cwd + cài MCP vào chính wiki này:
 - `.llm-wiki-base.toml` (behavior config) + `eval/golden.toml` (query vàng — thay bằng query thật)
 - `.agents/skills/` — 7 skill wiki-scoped + `llm-wiki-base-research` (personal wiki = 1 folder
   nên 2 scope trùng nhau), kèm symlink cho client không đọc chuẩn Agent Skills
+- `~/.agents/skills/llm-wiki-base-contribute` + `~/.claude/skills/llm-wiki-base-contribute`
+  — skill **global** (1 bản per máy, dùng chung mọi wiki): draft page theo schema rồi stage
+  qua MCP. Cài mặc định; bỏ bằng `--no-contribute`
 - Đặt `[wiki].profile = personal` (+ `[wiki].lang` nếu truyền `--lang`)
 - Đăng ký wiki vào `~/.llm-wiki-base/registry.toml` (có `name` + `id` UUID)
 - Cài MCP entry (`llm-wiki-base-mcp`) vào file MCP của từng client được chọn —
@@ -43,6 +49,7 @@ Lệnh này tạo data-only trong cwd + cài MCP vào chính wiki này:
 
 Cờ đáng chú ý: `-c/--client` (lặp lại được; **bỏ trống = những client detect được
 trên máy**, xem `llm-wiki-base setup clients`), `--no-mcp`,
+`--no-contribute` (bỏ cài skill global `llm-wiki-base-contribute`; mặc định cài),
 `--no-register` (test — không ghi registry thật),
 `--skills-target universal|claude|both|skip`, `--no-skills`, `--lang`, `--force`.
 
@@ -62,12 +69,15 @@ Lệnh này:
   repo (`.mcp.json` cho claude/commandcode, `opencode.jsonc` cho opencode — commit vào
   VCS để cả team dùng). Server đọc registry để tìm wikis. Init in ra **đường dẫn + key**
   vừa ghi.
-- Cài skills **2 scope**: 7 skill wiki-scoped vào `<wiki-dir>/.agents/skills/`, còn
-  `llm-wiki-base-research` vào `<root>/.agents/skills/` — nó cần thấy mọi wiki, không chỉ một
+- Cài skills **3 scope**: 7 skill wiki-scoped vào `<wiki-dir>/.agents/skills/`,
+  `llm-wiki-base-research` vào `<root>/.agents/skills/` (nó cần thấy mọi wiki, không
+  chỉ một), và skill **global** `llm-wiki-base-contribute` vào `~/.agents/skills/` +
+  `~/.claude/skills/` (1 bản per máy; bỏ bằng `--no-contribute`)
 - Đặt `[wiki].profile = codebase`
 
 Mỗi wiki mới chỉ cần đăng ký vào registry — MCP config không cần cài lại (idempotent).
-Skill đã cài là bản copy → nâng cấp package xong phải chạy lại `init` trên từng wiki
+Skill đã cài là bản copy → nâng cấp package xong phải refresh: `llm-wiki-base upgrade`
+(sync skill per-wiki + global) hoặc chạy lại `init` trên từng wiki
 (`init` không ghi đè `.llm-wiki-base.toml` đã tồn tại, chỉ vá thiếu `[wiki]`).
 
 ## 3. (Optional) override env

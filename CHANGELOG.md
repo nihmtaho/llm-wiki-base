@@ -6,6 +6,29 @@ Versioning follows [SemVer 2.0.0](https://semver.org/); tags are `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Added
+
+- `llm-wiki-base-contribute`: a new **global** skill (installed once per machine to
+  `~/.agents/skills/` + `~/.claude/skills/`) that drafts schema-valid wiki pages and
+  stages them through MCP — `wiki_submit` → `raw/inbox/` for new sources,
+  `wiki_propose_edit` → `wiki/.proposals/` for finished pages. AI proposes, human
+  decides; it never writes `wiki/` directly and never sets `verified`. Installed by
+  `setup tools|personal|project` (opt out with `--no-contribute`), and offered as a
+  question in the interactive `setup` wizard.
+
+### Fixed
+
+- `setup`/`init` no longer crash with `FileNotFoundError` at import time when the
+  current working directory has been deleted; the `--root` default now falls back to
+  `~` instead of calling `Path.cwd()` during module load.
+- `upgrade --to latest` picked the peeled ref (`v0.1.3^{}`) instead of the tag half
+  the time — `ls-remote` reports both for annotated tags and set ordering decided the
+  winner. The peeled ref is now ignored, so the resolved tag (and the `VERSION`
+  stamp) is always `vX.Y.Z`.
+- `upgrade` now re-syncs the user-global skills (`~/.agents/skills/` +
+  `~/.claude/skills/`), matching `init`; previously a newly shipped global skill
+  never reached existing installs.
+
 ## [0.1.3] - 2026-09-14
 
 ### Added

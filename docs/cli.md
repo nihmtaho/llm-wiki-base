@@ -26,6 +26,7 @@ llm-wiki-base setup personal --no-mcp                   # skip MCP
 llm-wiki-base setup personal --no-register              # skip registry.toml (tests/scripts)
 llm-wiki-base setup personal --skills-target claude     # + symlink .claude/skills/
 llm-wiki-base setup personal --no-skills                # skip skill install
+llm-wiki-base setup personal --no-contribute            # skip global llm-wiki-base-contribute skill
 
 # Project
 llm-wiki-base setup project -c claude -c opencode
@@ -116,7 +117,8 @@ Removes the **tool's footprint** across the machine:
   (`.mcp.json`, `opencode.jsonc`, …) — other servers are kept, and a config file
   that becomes empty is deleted;
 - every `llm-wiki-base-*` skill and its client links (`.claude/skills/`,
-  `.opencode/commands/`) + the skills manifest;
+  `.opencode/commands/`) + the skills manifest, including the machine-global
+  `~/.agents/skills/` + `~/.claude/skills/` copies of `llm-wiki-base-contribute`;
 - the marked research block `init project` wrote into the repo-root
   `AGENTS.md` / `.claude/CLAUDE.md` (surrounding text is preserved);
 - each wiki's `.llm-wiki-base/` state dir (VERSION + tool backups).
