@@ -112,6 +112,54 @@ def test_upgrade_apply_cli(runner, isolated_env, tmp_path, monkeypatch):
     assert (wiki / ".agents" / "skills").is_dir()  # install_skills đã chạy
 
 
+def test_upgrade_installs_global_skill(runner, isolated_env, tmp_path, monkeypatch):
+    """`upgrade` also re-syncs the machine-global skill, not just wiki ones."""
+    from llm_wiki_base import registry
+
+    core = _fake_core(tmp_path, "v0.1.0")
+    monkeypatch.setattr(U, "find_core", lambda: core)
+    wiki = _fake_wiki(tmp_path / "wikis")
+    registry.add_wiki("demo", str(wiki))
+    result = runner.invoke(app, ["upgrade", "--to", "v0.1.0"])
+    assert result.exit_code == 0, result.output
+    home = isolated_env["home"]
+    for sub in (".agents", ".claude"):
+        skill = home / sub / "skills" / "llm-wiki-base-contribute" / "SKILL.md"
+        assert skill.is_file(), sub
+    assert "global skills" in result.output
+
+
+def test_upgrade_dry_run_skips_global_skill(runner, isolated_env, tmp_path, monkeypatch):
+    """`--dry-run` never writes the global skill (or VERSION)."""
+    from llm_wiki_base import registry
+
+    core = _fake_core(tmp_path, "v0.1.0")
+    monkeypatch.setattr(U, "find_core", lambda: core)
+    wiki = _fake_wiki(tmp_path / "wikis")
+    registry.add_wiki("demo", str(wiki))
+    result = runner.invoke(app, ["upgrade", "--to", "v0.1.0", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert not (isolated_env["home"] / ".agents" / "skills"
+                / "llm-wiki-base-contribute").exists()
+
+
+def test_changed_sources_maps_global_subset(tmp_path):
+    """A change under `skills/global/` maps to the user-global dir, not the wiki."""
+    core = _fake_core(tmp_path)
+    src = core / "src" / "llm_wiki_base" / "skills" / "global" / "demo" / "SKILL.md"
+    src.parent.mkdir(parents=True)
+    src.write_text("v1", encoding="utf-8")
+    _git(core, "add", ".")
+    _git(core, "commit", "-m", "global v1")
+    _git(core, "tag", "v0.1.0")
+    src.write_text("v2", encoding="utf-8")
+    _git(core, "add", ".")
+    _git(core, "commit", "-m", "global v2")
+    _git(core, "tag", "v0.2.0")
+    changed = U.changed_sources(core, "v0.1.0", "v0.2.0")
+    assert changed == ["~/.agents/skills/demo/SKILL.md"]
+
+
 def test_upgrade_unknown_wiki(runner, isolated_env, tmp_path, monkeypatch):
     core = _fake_core(tmp_path, "v0.1.0")
     monkeypatch.setattr(U, "find_core", lambda: core)
