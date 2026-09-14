@@ -15,7 +15,7 @@ import typer
 
 from llm_wiki_base import _prompt, _ui
 from llm_wiki_base._package_data import read_template, template_exists
-from llm_wiki_base._skills import install_skills
+from llm_wiki_base._skills import install_contribute_skill, install_skills
 from llm_wiki_base._ui import console
 from llm_wiki_base.base import get_base_dir
 from llm_wiki_base.config import supported_clients, supports_user_scope
@@ -55,6 +55,7 @@ def run(
     skip_mcp: bool = False,
     lang: str | None = None,
     register: bool = True,
+    install_contribute: bool = True,
 ) -> None:
     wiki_name = name or cwd.name
     base_dir = get_base_dir()
@@ -202,7 +203,17 @@ def run(
             console.print("  [yellow]![/yellow] không cài được skill nào — kiểm tra package "
                           "data (`llm-wiki-base base install` lại sau khi nâng cấp)")
 
-    # 10. Done
+    # 10. Install global contribute skill (optional)
+    if install_contribute:
+        contrib = install_contribute_skill()
+        if contrib:
+            console.print(f"  [green]✓[/green] llm-wiki-base-contribute installed to: "
+                          f"{', '.join(contrib)}")
+        else:
+            console.print("  [yellow]![/yellow] contribute skill not found in package data "
+                          "— check `llm-wiki-base base install`")
+
+    # 11. Done
     rows = [
         f"Data:         {cwd}/",
         f"Base runtime: {base_dir}/ (global, shared)",
@@ -217,6 +228,8 @@ def run(
                     "— sửa rồi chạy lại init này (nó idempotent, không phá dữ liệu)")
     if installed:
         rows.append(f"Skills:       {cwd}/.agents/skills/ (scope = wiki này + cross-wiki research)")
+    if install_contribute:
+        rows.append("Contribute:    ~/.agents/skills/llm-wiki-base-contribute (+ ~/.claude/skills/)")
     _ui.done_panel("Personal wiki ready", rows)
     console.print()
     console.print("Next steps:")
@@ -226,5 +239,9 @@ def run(
     console.print(f"  3. AI tool load skills từ [cyan]{cwd}/.agents/skills/[/cyan] — "
                   "Command Code đọc `.agents/skills/` trực tiếp; Claude/OpenCode đã được link")
     console.print(f"  4. MCP search: wiki_search(query, wiki='{wiki_name}'), hoặc wiki=\"\" để search mọi wiki")
+    if install_contribute:
+        console.print("  5. Draft + contribute wiki pages via global skill: "
+                       "[cyan]/llm-wiki-base-contribute[/cyan] "
+                       "(installed at ~/.agents/skills/llm-wiki-base-contribute/)")
     if not skip_mcp:
-        console.print("  5. [bold]Khởi động lại AI tool[/bold] — MCP process cũ giữ registry trong memory")
+        console.print("  6. [bold]Khởi động lại AI tool[/bold] — MCP process cũ giữ registry trong memory")

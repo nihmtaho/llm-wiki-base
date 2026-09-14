@@ -17,7 +17,9 @@ directly.
 
 Resources: `registry://wikis`, `wiki://<name>/index`, `wiki://<name>/log`.
 Rerank is **not an MCP tool** — it's the LLM step inside skill
-`llm-wiki-base-query` / `llm-wiki-base-research`.
+`llm-wiki-base-query` / `llm-wiki-base-research`. The write path
+(`wiki_submit`, `wiki_propose_edit`) is driven by the global
+`llm-wiki-base-contribute` skill.
 
 ## Per-client setup (`llm-wiki-base setup -c …`)
 

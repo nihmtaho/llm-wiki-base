@@ -42,9 +42,10 @@ def test_wizard_confirms_summary(runner: CliRunner, isolated_env, machine,
                                  tmp_path, monkeypatch):
     _chdir_empty(monkeypatch, tmp_path)
     machine("claude")
-    result = runner.invoke(app, ["setup"], input="personal\ndemo\nclaude\n\n")
+    result = runner.invoke(app, ["setup"], input="personal\ndemo\nclaude\n\n\n")
     assert result.exit_code == 0, result.output
     assert "demo" in result.output                  # summary echoed resolved values
+    assert "Contribute" in result.output           # contribute skill option shown
 
 
 def test_wizard_lists_clients_with_evidence(runner: CliRunner, isolated_env, machine,
@@ -53,7 +54,7 @@ def test_wizard_lists_clients_with_evidence(runner: CliRunner, isolated_env, mac
     _wide(monkeypatch)
     machine("claude")
     result = runner.invoke(app, ["setup"],
-                           input=f"personal\ndemo\n{CLAUDE}\n\n")
+                           input=f"personal\ndemo\n{CLAUDE}\n\n\n")
     out = result.output
     assert result.exit_code == 0, out
     assert "Claude Code" in out                     # detected: named, pre-checked
@@ -66,7 +67,7 @@ def test_wizard_accepts_numeric_answers(runner: CliRunner, isolated_env, machine
     work = _chdir_empty(monkeypatch, tmp_path)
     machine("claude", "codex")
     result = runner.invoke(app, ["setup"],
-                           input=f"personal\ndemo\n{CLAUDE},{CODEX}\n\n")
+                           input=f"personal\ndemo\n{CLAUDE},{CODEX}\n\n\n")
     assert result.exit_code == 0, result.output
     assert (work / ".mcp.json").is_file()
     assert (work / ".codex" / "config.toml").is_file()
@@ -78,7 +79,7 @@ def test_wizard_empty_selection_creates_wiki_without_mcp(
     work = _chdir_empty(monkeypatch, tmp_path)
     _wide(monkeypatch)
     machine("claude")
-    result = runner.invoke(app, ["setup"], input="personal\ndemo\n-\n\n")
+    result = runner.invoke(app, ["setup"], input="personal\ndemo\n-\n\n\n")
     assert result.exit_code == 0, result.output
     assert not (work / ".mcp.json").exists()
     assert work.is_dir() and (work / "wiki").is_dir()   # the wiki itself is still made
@@ -115,7 +116,7 @@ def test_nothing_detected_still_offers_every_client(machine, runner: CliRunner,
     assert not (work / ".mcp.json").exists()        # nothing guessed on our behalf
     assert "không có client nào được chọn" in result.output
 
-    pick = runner.invoke(app, ["setup"], input=f"personal\ndemo\n{OPENCODE}\n\n")
+    pick = runner.invoke(app, ["setup"], input=f"personal\ndemo\n{OPENCODE}\n\n\n")
     assert pick.exit_code == 0, pick.output
     assert (work / "opencode.jsonc").is_file()      # ... but the human can still choose
 

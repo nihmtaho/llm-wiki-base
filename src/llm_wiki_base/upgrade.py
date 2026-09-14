@@ -10,6 +10,9 @@ Cơ chế tối giản — không manifest/checksum tay:
 - Wiki loại `project` còn có skill `codebase` cài ở project root
   (`<root>/.agents/skills/`): tự tìm root (ancestor gần nhất có codebase skill
   đã cài), backup + sync + stamp VERSION ở root luôn (cùng timestamp backup).
+- Skill `global` (`~/.agents/skills/` + `~/.claude/skills/`) là machine-scoped:
+  `upgrade_all` sync MỘT lần cho cả lượt (không lặp theo wiki, không backup vì
+  bản trong package là nguồn duy nhất).
 - Rollback = `upgrade --to <tag-cũ>` (core checkout tag đó trước) hoặc chép ngược
   từ `.llm-wiki-base/backups/<ts>/`.
 
@@ -31,6 +34,10 @@ BACKUP_KEEP = 5
 
 #: Thư mục skills trong wiki (đích của `install_skills(..., subset="wiki")`).
 SKILLS_DIR = Path(".agents/skills")
+
+#: Đích của `install_global_skills` — trong $HOME, không phải trong wiki. Dùng cho
+#: `--dry-run` (map path nguồn → đích) và để phân biệt subset `global`.
+GLOBAL_SKILLS_DIR = Path("~/.agents/skills")
 
 #: (template, đích trong wiki) cho agent configs.
 AGENT_FILES = (
@@ -81,11 +88,18 @@ def latest_tag(core: Path) -> str | None:
     except (OSError, subprocess.SubprocessError):
         pass
     proc = _git(core, "ls-remote", "--tags", "origin")
-    remote = (
-        [t.split("refs/tags/")[-1] for t in proc.stdout.decode().split() if "refs/tags/" in t]
-        if proc.returncode == 0
-        else []
-    )
+    remote: list[str] = []
+    if proc.returncode == 0:
+        for ref in proc.stdout.decode().split():
+            if "refs/tags/" not in ref:
+                continue
+            name = ref.split("refs/tags/")[-1]
+            # `ls-remote` trả cả ref đã bóc (`v0.1.3^{}`) cho annotated tag —
+            # cùng tag, không phải bản mới; giữ lại sẽ làm `--to latest` so tag
+            # lệch (`v0.1.3^{}` != `v0.1.3`) và stamp VERSION sai.
+            if name.endswith("^{}"):
+                continue
+            remote.append(name)
     known = [t for t in {*local_tags(core), *remote} if parse_tag(t)]
     return max(known, key=parse_tag) if known else None  # type: ignore[arg-type]
 
@@ -216,6 +230,17 @@ def sync_codebase(root: Path) -> list[str]:
     return install_skills(root, target="universal", subset="codebase", clients=())
 
 
+def sync_global_skills() -> list[str]:
+    """Cài lại skill user-global (`~/.agents/skills/` + `~/.claude/skills/`).
+
+    Cùng hàm `init`/`setup` dùng (`install_global_skills`). Machine-scoped nên
+    gọi MỘT lần cho cả lượt upgrade, không lặp theo từng wiki.
+    """
+    from llm_wiki_base._skills import install_global_skills
+
+    return install_global_skills()
+
+
 def backup_root_skills(root: Path, ts: str) -> Path | None:
     """Backup `.agents/skills` của root vào `<root>/.llm-wiki-base/backups/<ts>/`."""
     if not (root / SKILLS_DIR).is_dir():
@@ -245,7 +270,9 @@ def changed_sources(core: Path, old: str | None, new: str) -> list[str] | None:
         if line.startswith("src/llm_wiki_base/skills/"):
             rest = line.split("src/llm_wiki_base/skills/", 1)[1].split("/", 2)
             if len(rest) == 3:  # <subset>/<skill>/<file...>
-                mapped.append(str(Path(".agents/skills") / rest[1] / rest[2]))
+                subset, skill, rel = rest
+                base = GLOBAL_SKILLS_DIR if subset == "global" else SKILLS_DIR
+                mapped.append(str(base / skill / rel))
         elif line.startswith("src/llm_wiki_base/templates/agents/"):
             name = line.rsplit("/", 1)[1]
             for src_name, dst in AGENT_FILES:
@@ -294,7 +321,8 @@ def upgrade_all(core: Path, tag: str, wiki_name: str | None = None,
 
     entries = [registry.find(wiki_name)] if wiki_name else registry.list_wikis()
     if wiki_name and not entries[0]:
-        return {"tag": tag, "done": [], "missing": [], "unknown": [wiki_name]}
+        return {"tag": tag, "done": [], "missing": [], "unknown": [wiki_name],
+                "global_skills": []}
     done, missing = [], []
     for entry in entries:
         if entry is None:
@@ -309,4 +337,6 @@ def upgrade_all(core: Path, tag: str, wiki_name: str | None = None,
             result["changed"] = changed_sources(core, result["old"], tag)
         result.update({"name": entry.get("name", "?"), "path": str(path)})
         done.append(result)
-    return {"tag": tag, "done": done, "missing": missing, "unknown": []}
+    global_skills = [] if dry_run else sync_global_skills()
+    return {"tag": tag, "done": done, "missing": missing, "unknown": [],
+            "global_skills": global_skills}

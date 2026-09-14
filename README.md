@@ -160,6 +160,10 @@ push gaps into `wiki/alerts/`.
 | **`[wiki].profile`** | `personal` | `codebase` |
 | **Skills** | `llm-wiki-base-{ingest,query,lint,reindex,review,consolidate,translate}` | same set **+ `llm-wiki-base-research` at repo root** |
 
+Both flavors also install the **global** `llm-wiki-base-contribute` skill (to
+`~/.agents/skills/` + `~/.claude/skills/`, one copy per machine) unless
+`--no-contribute` is passed.
+
 Both flavors **share skill names** — they differ by `[wiki].profile`, not by skill
 set. MCP is centralized (`llm-wiki-base-mcp`): one machine-wide server entry
 reads `registry.toml` to find wikis. Setup guide: [`docs/init.md`](docs/init.md).
@@ -169,6 +173,7 @@ reads `registry.toml` to find wikis. Setup guide: [`docs/init.md`](docs/init.md)
 ```bash
 llm-wiki-base setup personal --name "My Knowledge" --lang vi
 llm-wiki-base setup project -c claude -c opencode
+llm-wiki-base setup personal --no-contribute              # skip the global contribute skill
 llm-wiki-base wiki list                                   # wikis in registry.toml
 llm-wiki-base wiki ingest raw/inbox/foo.md                # index one source (writes no pages)
 llm-wiki-base wiki reindex && llm-wiki-base check lint && llm-wiki-base setup doctor
@@ -188,8 +193,9 @@ Full reference (init flags, per-wiki commands, proposals, translation, doctor):
 
 ## Skills
 
-8 skills, **no personal/project name split** — mode comes from `[wiki].profile`.
-Installed by `llm-wiki-base setup` in two scopes:
+9 skills, **no personal/project name split** — mode comes from `[wiki].profile`.
+Installed by `llm-wiki-base setup` in three scopes (wiki, machine-global, repo
+root):
 
 | Skill | Scope | Role |
 |---|---|---|
@@ -200,12 +206,19 @@ Installed by `llm-wiki-base setup` in two scopes:
 | `llm-wiki-base-review` | wiki | **semantic** health-check: contradictions, staleness, trust gaps → `wiki/alerts/` |
 | `llm-wiki-base-consolidate` | wiki | merge scattered logs/notes → canonical concepts (additive, distill-verify) |
 | `llm-wiki-base-translate` | wiki | translate pages into `[translate].langs` (AI tool's LLM) |
+| `llm-wiki-base-contribute` | **global** | draft + stage wiki pages: schema-valid markdown → `wiki/.proposals/`, new sources → `raw/inbox/`. AI proposes, human decides. |
 | `llm-wiki-base-research` | **codebase root** | research **across wikis** via centralized MCP |
 
 `llm-wiki-base-research` lives at `<repo>/.agents/skills/` instead of inside a wiki:
 it must see every wiki, while wiki-scoped skills mind one wiki each. Boundary
 with `query`: *query* = the wiki you're standing in (may file synthesis),
 *research* = many wikis (staging only).
+
+`llm-wiki-base-contribute` is **global** (`~/.agents/skills/` +
+`~/.claude/skills/`): it drafts schema-valid pages for whichever wiki the human
+names, then stages them through MCP — `wiki_submit` → `raw/inbox/` for new
+sources, `wiki_propose_edit` → `wiki/.proposals/` for finished pages. Install or
+skip it at init with `--contribute` / `--no-contribute` (default: install).
 
 Installed skills are **copies** — after upgrading the package, refresh each wiki
 with `llm-wiki-base upgrade` (backup + overwrite, prunes shipped-away skills, keeps

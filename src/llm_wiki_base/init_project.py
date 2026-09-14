@@ -19,7 +19,7 @@ import typer
 
 from llm_wiki_base import _prompt, _ui
 from llm_wiki_base._package_data import read_template, template_exists
-from llm_wiki_base._skills import install_skills
+from llm_wiki_base._skills import install_contribute_skill, install_skills
 from llm_wiki_base._ui import console
 from llm_wiki_base.base import get_base_dir
 from llm_wiki_base.config import supported_clients, supports_user_scope
@@ -128,6 +128,7 @@ def run(
     skip_mcp: bool = False,
     lang: str | None = None,
     register: bool = True,
+    install_contribute: bool = True,
 ) -> None:
     wiki_dir = (root / wiki_subdir).resolve()
     base_dir = get_base_dir()
@@ -286,7 +287,17 @@ def run(
     if research_touched:
         console.print(f"  [green]✓[/green] root research block: {', '.join(research_touched)}")
 
-    # 9. Done
+    # 9. Install global contribute skill (optional)
+    if install_contribute:
+        contrib = install_contribute_skill()
+        if contrib:
+            console.print(f"  [green]✓[/green] llm-wiki-base-contribute installed to: "
+                          f"{', '.join(contrib)}")
+        else:
+            console.print("  [yellow]![/yellow] contribute skill not found in package data "
+                          "— check `llm-wiki-base base install`")
+
+    # 10. Done
     rows = [
         f"Data:         {wiki_dir}/",
         f"Base runtime: {base_dir}/ (global, shared)",
@@ -305,6 +316,8 @@ def run(
         rows.append(f"Skills:       {wiki_dir}/.agents/skills/ (wiki scope)")
     if installed_root:
         rows.append(f"Skills:       {root}/.agents/skills/ (codebase scope)")
+    if install_contribute:
+        rows.append("Contribute:    ~/.agents/skills/llm-wiki-base-contribute (+ ~/.claude/skills/)")
     _ui.done_panel("Project wiki ready", rows)
     console.print()
     console.print("Next steps:")
@@ -318,3 +331,7 @@ def run(
     console.print(f"  5. Nạp source đầu tiên: [cyan]cd {wiki_dir} && llm-wiki-base ingest raw/inbox/<file>[/cyan]"
                   " (CLI chỉ index; viết page là việc của skill llm-wiki-base-ingest trong AI tool)")
     console.print("  6. Đo retrieval sau khi có vài page: [cyan]llm-wiki-base eval --compare[/cyan]")
+    if install_contribute:
+        console.print("  7. Draft + contribute wiki pages via global skill: "
+                      "[cyan]/llm-wiki-base-contribute[/cyan] "
+                      "(installed at ~/.agents/skills/llm-wiki-base-contribute/)")
