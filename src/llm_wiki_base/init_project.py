@@ -16,14 +16,13 @@ Project wiki chỉ chứa data + .env + .llm-wiki-base.toml + .agents/skills/.
 from pathlib import Path
 
 import typer
-from rich.prompt import Confirm
 
-from llm_wiki_base import _ui
+from llm_wiki_base import _prompt, _ui
 from llm_wiki_base._package_data import read_template, template_exists
 from llm_wiki_base._skills import install_skills
 from llm_wiki_base._ui import console
 from llm_wiki_base.base import get_base_dir
-from llm_wiki_base.config import supported_clients
+from llm_wiki_base.config import supported_clients, supports_user_scope
 from llm_wiki_base.config_file import ensure_wiki_identity
 from llm_wiki_base.installer import CENTRALIZED_SERVER_NAME, install_centralized_mcp
 from llm_wiki_base.registry import add_wiki
@@ -154,7 +153,7 @@ def run(
 
     # Check wiki_dir
     if wiki_dir.exists() and any(wiki_dir.iterdir()) and not force:
-        if not Confirm.ask(
+        if not _prompt.confirm(
             f"{wiki_dir} đã có nội dung. Tiếp tục (KHÔNG overwrite file tồn tại)?"
         ):
             raise SystemExit(1)
@@ -234,25 +233,32 @@ def run(
                       "wiki này qua `wiki=`[/dim]")
 
     # 7. Install centralized MCP config vào per-project wiki
-    #    (<root>/.mcp.json, opencode.jsonc, … — commit vào VCS cho cả team).
+    #    (<root>/.mcp.json, .codex/config.toml, … — commit vào VCS cho cả team).
+    #    Client không có file project-scope (hermes) ghi vào config toàn cục và
+    #    `describe()` nói rõ GLOBAL để người dùng thấy trước khi kịp commit.
     mcp_results: list = []
     mcp_failed: list[tuple[str, str]] = []
     if not skip_mcp and clients:
         console.print()
-        console.print("[bold]Cài MCP vào per-project wiki:[/bold]")
+        console.print("[bold]Cài MCP:[/bold]")
         for client in clients:
             try:
+                scope = "user" if supports_user_scope(client) else "project"
                 res = install_centralized_mcp(
                     client, server_name=server_name,
-                    scope="project", project_root=root)
+                    scope=scope, project_root=root)
                 mcp_results.append(res)
                 console.print(f"  [green]✓[/green] {client}: {res.describe()}")
             except ValueError as e:
-                # Client chưa có file MCP project-scope (vd zed) → bỏ qua, không lỗi.
+                # Client không có file config ở scope đó → bỏ qua, không lỗi.
                 console.print(f"  [dim]–[/dim] {client}: {e}")
             except Exception as e:
                 mcp_failed.append((client, str(e)))
                 console.print(f"  [red]✗[/red] {client}: {e}")
+    elif not skip_mcp:
+        console.print("  [yellow]![/yellow] không có client nào được chọn "
+                      "(--client rỗng và máy này không detect được AI client nào) → "
+                      "bỏ qua MCP. AI tool sẽ KHÔNG thấy wiki này qua `wiki=`.")
 
     # 8. Install skills — 2 scope khác nhau, xem docstring `_skills`.
     #    `wiki`     → <wiki_dir>/.agents/skills/   (vận hành chính wiki này)

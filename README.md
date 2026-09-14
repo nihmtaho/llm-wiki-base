@@ -96,7 +96,8 @@ Fallback on any OS — call through the venv: `./.venv/bin/llm-wiki-base setup t
 
 ```bash
 mkdir demo && cd demo
-llm-wiki-base setup personal -c commandcode --lang vi   # or -c claude / opencode / zed
+llm-wiki-base setup personal -c commandcode --lang vi   # or omit -c: installs into the
+                                                        # AI clients detected on this machine
 echo "# Notes\n\nExpo Router SplitView uses \`unstable_splitView\`." > raw/inbox/note.md
 
 # One rule — ingest INDEXES, it never writes pages:
