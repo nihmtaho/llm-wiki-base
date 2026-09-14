@@ -6,6 +6,20 @@ Versioning follows [SemVer 2.0.0](https://semver.org/); tags are `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-14
+
+### Added
+
+- `setup` now chooses clients with an interactive arrow-key menu and only checks the
+  clients this machine can prove exist (binary on PATH, config dir, or the macOS app
+  bundle), so it stops creating config for clients you don't have. Support grew from 4
+  to 9 clients (adds pi, cursor, copilot, codex, hermes); `zed` now reads `.zed/settings.json`.
+
+### Changed
+
+- `setup` stays usable non-interactively: `--yes`, pipes, and CI behave as before, and
+  piped users get a numbered list of clients they can answer by number.
+
 ## [0.1.2] - 2026-09-11
 
 ### Added
@@ -81,3 +95,6 @@ First release.
 - English README (standard-readme layout), `LICENSE` (MIT), topic guides under
   `docs/` (`cli`, `retrieval-eval`, `mcp`, `upgrading`, `translation`),
   animated `docs/wiki-flow.html`.
+
+[Unreleased]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.3...HEAD
+[v0.1.3]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.2...v0.1.3
