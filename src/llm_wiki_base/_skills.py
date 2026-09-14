@@ -438,3 +438,89 @@ def _manifest_names(skills_dir: Path) -> list[str]:
         return []
     names = data.get("skills", [])
     return [n for n in names if isinstance(n, str)]
+
+
+# ───────────────────────────────────────────────────────────
+# Global / user-level skills (NOT per-wiki)
+#
+# Global skills live in `~/.agents/skills/` (Command Code universal) and
+# `~/.claude/skills/` (Claude Code) — they are NOT scoped to a single wiki.
+# They ship under `skills/global/` in package data and are copied verbatim
+# (idempotent) into the user's home skill directories so any AI tool can
+# invoke them regardless of which wiki is open. The main example is
+# `llm-wiki-base-contribute` (draft + stage wiki pages via MCP, target wiki
+# chosen at runtime).
+# ───────────────────────────────────────────────────────────
+
+#: Subdirectory inside package data holding shipped global skills.
+GLOBALS_SUBSET = "global"
+
+
+def available_global_skills() -> list[str]:
+    """Names of global/user-level skills shipped in package data."""
+    base = package_path("skills", GLOBALS_SUBSET)
+    if not base.is_dir():
+        return []
+    return sorted(d.name for d in base.iterdir() if (d / "SKILL.md").is_file())
+
+
+def install_global_skills(
+    names: list[str] | None = None,
+) -> list[str]:
+    """Install global/user-level skill(s) to user-global directories.
+
+    Copies from `skills/global/<name>/` in package data to:
+    - `~/.agents/skills/<name>/`  (Command Code / universal)
+    - `~/.claude/skills/<name>/`  (Claude Code)
+
+    Idempotent — overwrites with the package version (single source of truth).
+    Unlike per-wiki skills, global skills are NOT project-scoped — they live in
+    the user's home directory so any AI tool can invoke them regardless of
+    which wiki is open.
+
+    Args:
+        names: skill names to install. Defaults to all available global skills.
+
+    Returns:
+        list of installed paths (one per target dir per skill).
+    """
+    if names is None:
+        names = available_global_skills()
+    home = Path.home()
+    targets: list[Path] = [
+        home / ".agents" / "skills",
+        home / ".claude" / "skills",
+    ]
+    installed: list[str] = []
+    for name in names:
+        src = package_path("skills", GLOBALS_SUBSET, name)
+        if not src.is_dir():
+            continue
+        for dst_base in targets:
+            dst = dst_base / name
+            dst.mkdir(parents=True, exist_ok=True)
+            skill_src = src / "SKILL.md"
+            if skill_src.is_file():
+                shutil.copy2(skill_src, dst / "SKILL.md")
+                installed.append(str(dst))
+            for extra in src.iterdir():
+                if extra.name == "SKILL.md":
+                    continue
+                t = dst / extra.name
+                if extra.is_file():
+                    shutil.copy2(extra, t)
+                elif extra.is_dir():
+                    shutil.rmtree(t, ignore_errors=True)
+                    shutil.copytree(extra, t)
+    return installed
+
+
+def install_contribute_skill() -> list[str]:
+    """Install the `llm-wiki-base-contribute` global skill if it is shipped.
+
+    Returns:
+        list of installed paths (empty if the skill is not in package data).
+    """
+    if "llm-wiki-base-contribute" not in available_global_skills():
+        return []
+    return install_global_skills(["llm-wiki-base-contribute"])

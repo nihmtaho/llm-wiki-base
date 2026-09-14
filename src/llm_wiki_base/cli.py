@@ -235,13 +235,19 @@ def _validate_clients(clients: list[str]) -> None:
 
 
 def _prompt_interactive_extras(lang: str, skills_target: str,
-                               skip_mcp: bool) -> tuple[str, str, bool]:
+                               skip_mcp: bool, contribute: bool = True
+                               ) -> tuple[str, str, bool, bool]:
     """Dropped questions, restored by `--interactive` (spec §5)."""
     lang = _prompt.text("Wiki language (the agent will write pages in this language)",
                         default=lang)
     skills_target = _prompt.select("Skills target", SKILLS_TARGETS, default=skills_target)
     do_mcp = _prompt.confirm("Install MCP into the wiki?", default=not skip_mcp)
-    return lang, skills_target, not do_mcp
+    do_contribute = _prompt.confirm(
+        "Install the global llm-wiki-base-contribute skill "
+        "(~/.agents/skills/ + ~/.claude/skills/)?",
+        default=contribute,
+    )
+    return lang, skills_target, not do_mcp, do_contribute
 
 
 SKILLS_TARGETS = [
@@ -253,9 +259,9 @@ SKILLS_TARGETS = [
 
 
 def _confirm_and_run_personal(cwd: Path, name: str | None, lang: str,
-                              clients: list[str], skills_target: str,
-                              skip_mcp: bool, yes: bool, register: bool = True,
-                              force: bool = False) -> None:
+                               clients: list[str], skills_target: str,
+                               skip_mcp: bool, yes: bool, register: bool = True,
+                               force: bool = False, contribute: bool = True) -> None:
     from llm_wiki_base.init_personal import run as run_personal
     facts = [
         "Type:     personal",
@@ -265,20 +271,23 @@ def _confirm_and_run_personal(cwd: Path, name: str | None, lang: str,
         f"Clients:  {', '.join(clients) if clients else '(none)'}",
         f"Skills:   {skills_target}",
         f"MCP:      {'skip (--no-mcp)' if skip_mcp else _mcp_plan_fact(clients)}",
+        f"Contribute: {'llm-wiki-base-contribute' if contribute else 'skip (--no-contribute)'}",
     ]
     _ui.ok_panel("Ready to create", facts)
     if not (yes or force) and not _prompt.confirm("Create wiki?", default=True):
         raise typer.Exit(0)
     # Summary confirm subsumes run()'s empty-dir confirm → force=True avoids a 2nd prompt.
     run_personal(cwd=cwd, name=name, force=True, skills_target=skills_target,
-                 clients=clients, skip_mcp=skip_mcp, lang=lang, register=register)
+                 clients=clients, skip_mcp=skip_mcp, lang=lang, register=register,
+                 install_contribute=contribute)
 
 
 def _confirm_and_run_project(root: Path, wiki_subdir: str, lang: str,
                              clients: list[str], skills_target: str,
                              skip_mcp: bool, yes: bool, register: bool = True,
                              force: bool = False,
-                             server_name: str | None = None) -> None:
+                             server_name: str | None = None,
+                             contribute: bool = True) -> None:
     from llm_wiki_base.init_project import run as run_project
     from llm_wiki_base.installer import CENTRALIZED_SERVER_NAME
     server_name = server_name or CENTRALIZED_SERVER_NAME
@@ -291,13 +300,15 @@ def _confirm_and_run_project(root: Path, wiki_subdir: str, lang: str,
         f"Skills:   {skills_target}",
         f"MCP:      {'skip (--no-mcp)' if skip_mcp else _mcp_plan_fact(clients)}",
         f"Server:   {server_name}",
+        f"Contribute: {'llm-wiki-base-contribute' if contribute else 'skip (--no-contribute)'}",
     ]
     _ui.ok_panel("Ready to create", facts)
     if not (yes or force) and not _prompt.confirm("Create wiki?", default=True):
         raise typer.Exit(0)
     run_project(root=root, wiki_subdir=wiki_subdir, clients=clients,
                 server_name=server_name, force=True, skills_target=skills_target,
-                skip_mcp=skip_mcp, lang=lang, register=register)
+                skip_mcp=skip_mcp, lang=lang, register=register,
+                install_contribute=contribute)
 
 
 def _slim_personal() -> None:
@@ -305,8 +316,14 @@ def _slim_personal() -> None:
     (extras only via `setup personal|project --interactive`)."""
     cwd = Path.cwd()
     name = _prompt.text("Wiki name", default=cwd.name)
-    _confirm_and_run_personal(cwd, name, "en", _ask_clients(), "universal",
-                              False, yes=False)
+    clients = _ask_clients()
+    do_contribute = _prompt.confirm(
+        "Install the global llm-wiki-base-contribute skill "
+        "(~/.agents/skills/ + ~/.claude/skills/)?",
+        default=True,
+    )
+    _confirm_and_run_personal(cwd, name, "en", clients, "universal",
+                              False, yes=False, contribute=do_contribute)
 
 
 def _slim_project() -> None:
@@ -314,8 +331,14 @@ def _slim_project() -> None:
     (extras only via `setup personal|project --interactive`)."""
     root = Path(_prompt.text("Project root", default=str(Path.cwd()))).resolve()
     wiki_subdir = _prompt.text("Wiki subdir (under project root)", default="project-wiki")
-    _confirm_and_run_project(root, wiki_subdir, "en", _ask_clients(), "universal",
-                             False, yes=False)
+    clients = _ask_clients()
+    do_contribute = _prompt.confirm(
+        "Install the global llm-wiki-base-contribute skill "
+        "(~/.agents/skills/ + ~/.claude/skills/)?",
+        default=True,
+    )
+    _confirm_and_run_project(root, wiki_subdir, "en", clients, "universal",
+                             False, yes=False, contribute=do_contribute)
 
 
 @setup_app.command("personal")
@@ -346,9 +369,14 @@ def init_personal(
         False, "--yes", "-y",
         help="Skip the confirmation screen (scripts/CI). Never prompts.",
     ),
-    interactive: bool = typer.Option(
+     interactive: bool = typer.Option(
         False, "--interactive", "-i",
-        help="Ask for lang, skills target, and skip-MCP before the confirmation screen.",
+        help="Ask for lang, skills target, MCP, and contribute-skill preference before the confirmation screen.",
+    ),
+     contribute: bool = typer.Option(
+        True, "--contribute/--no-contribute",
+        help="Install the global llm-wiki-base-contribute skill "
+             "(~/.agents/skills/ + ~/.claude/skills/) for drafting/stage wiki pages.",
     ),
 ) -> None:
     """Init one personal knowledge wiki at cwd. In-place. Installs MCP + registry by default.
@@ -357,6 +385,7 @@ def init_personal(
         llm-wiki-base setup personal --name notes
         llm-wiki-base setup personal --name notes --client claude --client opencode
         llm-wiki-base setup personal --name notes --lang vi --no-mcp
+        llm-wiki-base setup personal --name notes --no-contribute
     """
     cwd = Path.cwd()
     lang_val = lang or "en"
@@ -365,12 +394,12 @@ def init_personal(
     clients = _resolve_clients(client, interactive)
     if interactive:
         clients = _ask_clients(clients or None)
-        lang_val, target, skip_mcp_val = _prompt_interactive_extras(
-            lang_val, target, skip_mcp_val)
+        lang_val, target, skip_mcp_val, contribute = _prompt_interactive_extras(
+            lang_val, target, skip_mcp_val, contribute)
     _validate_clients(clients)
     _confirm_and_run_personal(cwd, name, lang_val, clients, target,
                               skip_mcp_val, yes=yes, register=not no_register,
-                              force=force)
+                              force=force, contribute=contribute)
 
 
 @setup_app.command("project")
@@ -408,9 +437,14 @@ def init_project(
         False, "--yes", "-y",
         help="Skip the confirmation screen (scripts/CI). Never prompts.",
     ),
-    interactive: bool = typer.Option(
+     interactive: bool = typer.Option(
         False, "--interactive", "-i",
-        help="Ask for lang, skills target, and skip-MCP before the confirmation screen.",
+        help="Ask for lang, skills target, MCP, and contribute-skill preference before the confirmation screen.",
+    ),
+     contribute: bool = typer.Option(
+        True, "--contribute/--no-contribute",
+        help="Install the global llm-wiki-base-contribute skill "
+             "(~/.agents/skills/ + ~/.claude/skills/) for drafting/stage wiki pages.",
     ),
 ) -> None:
     """Init a project wiki: create <root>/<wiki-dir>/ + TOML register + per-project MCP + skills.
@@ -418,6 +452,7 @@ def init_project(
     Examples:
         llm-wiki-base setup project --root . --wiki-dir project-wiki
         llm-wiki-base setup project --root /path/to/repo --client claude --no-skills
+        llm-wiki-base setup project --root . --no-contribute
     """
     lang_val = lang or "en"
     target = "skip" if no_skills else skills_target
@@ -425,12 +460,13 @@ def init_project(
     clients = _resolve_clients(client, interactive)
     if interactive:
         clients = _ask_clients(clients or None)
-        lang_val, target, skip_mcp_val = _prompt_interactive_extras(
-            lang_val, target, skip_mcp_val)
+        lang_val, target, skip_mcp_val, contribute = _prompt_interactive_extras(
+            lang_val, target, skip_mcp_val, contribute)
     _validate_clients(clients)
     _confirm_and_run_project(root, wiki_dir, lang_val, clients, target,
                              skip_mcp_val, yes=yes, register=not no_register,
-                             force=force, server_name=server_name)
+                             force=force, server_name=server_name,
+                             contribute=contribute)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -521,7 +557,12 @@ def base_install(
         None, "--dir", "-d",
         help="Target dir (default: ~/.llm-wiki-base). Override via LLM_WIKI_BASE_DIR env.",
     ),
-    force: bool = typer.Option(False, "--force", "-f", help="Recreate venv + reinstall requirements."),
+     force: bool = typer.Option(False, "--force", "-f", help="Recreate venv + reinstall requirements."),
+     contribute: bool = typer.Option(
+        True, "--contribute/--no-contribute",
+        help="Install the global llm-wiki-base-contribute skill "
+             "(~/.agents/skills/ + ~/.claude/skills/) for drafting wiki pages.",
+    ),
 ) -> None:
     """Install the global llm-wiki-base runtime (tools/, rag/, scripts/, .venv/).
 
@@ -531,13 +572,22 @@ def base_install(
     Examples:
         llm-wiki-base setup tools
         llm-wiki-base setup tools --force
-        llm-wiki-base setup tools --dir ~/.llm-wiki-base
+        llm-wiki-base setup tools --dir ~/.llm-wiki-base --no-contribute
     """
     base = install_base(base_dir=dir, force=force)
-    _ui.done_panel("llm-wiki-base installed",
-                   [f"at:     {base}", f"python: {get_base_python()}"])
+    rows: list[str] = [f"at:     {base}", f"python: {get_base_python()}"]
+    if contribute:
+        from llm_wiki_base._skills import install_contribute_skill
+        installed = install_contribute_skill()
+        if installed:
+            rows.append(f"skills: {', '.join(installed)}")
+        else:
+            console.print("  [yellow]![/yellow] contribute skill not found in package data")
+    _ui.done_panel("llm-wiki-base installed", rows)
     console.print()
     console.print("Next: cd into an empty folder, then `llm-wiki-base setup personal` to create wiki data + MCP.")
+    if contribute:
+        console.print("Tip: invoke /llm-wiki-base-contribute in your AI tool to draft wiki pages.")
 
 
 @config_app.command("path")
@@ -1342,6 +1392,7 @@ def upgrade_cmd(
                         f"{detail}{_upgrade_root_suffix(r, True)}")
         for name in result["missing"]:
             rows.append(f"[yellow]![/yellow] {name}: path gone, skipped")
+        rows.append("global skills: re-synced to ~/.agents/skills/ + ~/.claude/skills/")
         _ui.done_panel(f"upgrade --dry-run → {tag}", rows or ["No wikis."])
         return
     rows = []
@@ -1351,6 +1402,9 @@ def upgrade_cmd(
                     f"{_upgrade_root_suffix(r, False)}")
     for name in result["missing"]:
         rows.append(f"[yellow]![/yellow] {name}: path gone, skipped")
+    if result.get("global_skills"):
+        rows.append("[green]✓[/green] global skills → ~/.agents/skills/ "
+                    "+ ~/.claude/skills/")
     _ui.done_panel(f"upgrade → {tag}", rows or ["No wikis."])
 
 
