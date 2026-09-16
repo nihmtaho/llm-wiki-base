@@ -5,48 +5,60 @@ description: >
   timestamps, footnote↔sources, index sync, orphan pins, layout. Contradictions / old claims /
   stale code references belong to `llm-wiki-base-review`. Run periodically or when the human says
   "lint the wiki".
+id: 32357fa7610e45f39d0eeff6243b039e
 ---
 
 # LLM Wiki — Lint
 
-Principle: **deterministic first, generative second.** This skill covers structure only; semantics (contradictions, old claims, missing concepts, dead code paths) belong to `llm-wiki-base-review`.
+Principle: **deterministic first, generative second.** This skill covers structure only; semantics (contradictions, old claims, missing concepts, dead code paths) belong to `llm-wiki-base-review`. Always run lint **before** review — lint fixes structural noise that would otherwise inflate review results.
 
 Schema: `_schema.md`. Runbook: `AGENTS.md`.
+
+## Overview
+
+Runs `llm-wiki-base lint` to detect structural issues, fixes re-derivable content (index entries, dangling DB rows, bad formats), and hands semantic gaps to `llm-wiki-base-review`. Never deletes pages or pins. Never touches semantics. Findings are classified by severity: CRITICAL → WARNING → ADVISORY.
 
 ## When
 
 Periodically (`llm-wiki-base watch` runs it every `WATCH_LINT_SEC`) or when the human says "lint the wiki".
 
-## Process
+## Workflow
 
 1. Run inside `<wiki_root>`:
    ```bash
    llm-wiki-base lint
    ```
-   Returns `page_count`, `orphans`, `missing_file`, `findings` (each finding names its check).
-2. Handle each finding type:
-   - **broken-wikilink**: `[[target]]` points at a nonexistent file → fix the path or create the page.
-   - **missing-frontmatter**: missing frontmatter / missing `title`/`domain`/`kind` → backfill (infer from path).
-   - **status-vocab**: `status`/`confidence` outside vocab → fix (vocab in `_schema.md`, incl. `planned`/`deprecated`/`superseded`).
-   - **timestamp-format**: `updated` not `YYYY-MM-DD`, `stale_after`/`verified.at`/`generated.at` not offset ISO-8601 → fix the format.
-   - **stale-after-passed**: `stale_after` elapsed → report to the human, **do NOT change status yourself**.
-   - **footnote-sources-match**: `[^id]` not matching `sources[].id` (or vice versa) → fix the citation or the sources.
-   - **missing-index-entry** / **domain-missing-index**: `llm-wiki-base lint --fix` — auto-adds missing entries (additive) + creates `index.md` for domains lacking one.
-   - **pin-orphan**: a pin in `wiki/pins.yml` lost its concept/anchor → report to the human, **never delete pins yourself**.
-   - **orphan** (page with no inbound `[[link]]`): find related pages to link from, or record as intentional.
-   - **missing_file**: page in DB but file missing on disk → `llm-wiki-base lint --fix` (drops dangling rows).
+   Returns `page_count`, `orphans`, `missing_file`, `findings` (each finding names its check and severity).
+2. Handle each finding by severity:
+
+   **CRITICAL** (blocks search — fix first):
+   - **missing_file**: page in DB but file missing on disk → `llm-wiki-base lint --fix` (drops dangling DB rows).
+
+   **WARNING** (structural gap — address in this pass):
+   - **broken-wikilink**: `[[target]]` points at nonexistent file → fix the path or create the page.
+   - **missing-frontmatter**: missing `title`/`domain`/`kind` → backfill (infer from path).
+   - **status-vocab**: `status`/`confidence` outside vocab → fix (vocab in `_schema.md`).
+   - **timestamp-format**: `updated` not `YYYY-MM-DD`, offset fields not ISO-8601 → fix.
+   - **stale-after-passed**: `stale_after` elapsed → report to human, **do NOT change status yourself**.
+   - **footnote-sources-match**: `[^id]` not matching `sources[].id` → fix citation or sources.
+   - **missing-index-entry** / **domain-missing-index**: `llm-wiki-base lint --fix` — auto-adds entries + creates `index.md`.
+   - **pin-orphan**: pin lost its anchor → report to human, **never delete pins yourself**.
+   - **orphan** (no inbound `[[link]]`): find related pages to link from, or record as intentional.
    - **`sources-no-local-path`** / **body-no-raw-inbox-wikilink**: drop references to `raw/inbox/`.
-   - **dense-bullet / indent-depth / banned-terms**: advisory — fix when touching that page (`[lint]` in `.llm-wiki-base.toml`).
+
+   **ADVISORY** (fix when touching that page; governed by `[lint]` in `.llm-wiki-base.toml`):
+   - **dense-bullet / indent-depth / banned-terms**: style guidelines — don't hold up the pass.
+
 3. **[codebase] Collect code paths** (input for review, NO verdicts here):
-   - Extract every code path / filename referenced in `entity/` + `concept/` pages.
-   - Check existence with `grep`/`find`/`ls` → list {path, referencing page, alive/dead}.
-   - Hand the list to `llm-wiki-base-review` for the stale verdict. **Don't edit pages in lint** — this is a heuristic, not truth.
-4. **Sync indexes (DB + chunk index)**:
+   - Extract every code path referenced in `entity/` + `concept/` pages.
+   - Check existence via `grep`/`find`/`ls` → list {path, referencing page, alive/dead}.
+   - Hand the list to `llm-wiki-base-review`. **Don't edit pages in lint.**
+4. **Sync indexes**:
    ```bash
    llm-wiki-base reindex
    ```
-   Incremental by content-hash. `--check` = dry-run (reports what would index/delete + config drift + chunk-index state); `--full` on config change. Detail: `llm-wiki-base-reindex` skill.
-5. **Hand semantics to review**: contradictions, old claims vs newer sources, missing concepts, trust gaps, **[codebase]** stale-code verdicts → `llm-wiki-base-review` skill (cadence `[review].interval_days`). **No semantics here.**
+   Incremental. `--check` = dry-run; `--full` on config change. Detail: `llm-wiki-base-reindex` skill.
+5. **Hand semantics to review**: contradictions, old claims, missing concepts, trust gaps → `llm-wiki-base-review`. **No semantics here.**
 
 ## MCP tools
 
@@ -55,6 +67,5 @@ Periodically (`llm-wiki-base watch` runs it every `WATCH_LINT_SEC`) or when the 
 ## Safety
 
 - Lint only reports + auto-fixes the **re-derivable**: index entries, dangling DB rows, formats.
-- Semantic decisions belong to the human (via the review skill).
-- **Never delete pages**, even orphans — the human decides. Never delete pins. Never touch `wiki/.proposals/` (that's `llm-wiki-base proposals`' job).
-- **[codebase]** Code-staleness checks are heuristics — confirm with the human before updating pages.
+- **Never delete pages** (even orphans), never delete pins, never touch `wiki/.proposals/`.
+- **[codebase]** Code-staleness checks are heuristics — confirm with human before updating pages.
