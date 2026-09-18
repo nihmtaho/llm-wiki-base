@@ -36,6 +36,7 @@ The human asks about content already in the wiki.
    - `wiki_search(query, top_k = 2 × [retrieval].top_n_final, wiki=<wiki name>)` — union retrieval: BM25 page ∪ BM25 chunk ∪ vector chunk, fused by **RRF over rank**.
    - `semantic_search(query, top_k, wiki)` to inspect the vector-chunk channel alone (only when `vector = true`).
    - Filter: `wiki_list(domain="…", kind="concept", wiki=…)`.
+   - **Diagram-aware queries**: if the query is about a process, flow, or architecture, prefer pages that contain `mermaid` fenced blocks (they appear in BM25 results via body text). Mermaid content is indexed as part of the page body — no separate diagram search is needed. Only read a `.mmd` file directly (via `wiki_read`) when the wiki page refers to it with `<!-- diagram: ... -->` and you need the raw diagram code for editing/output.
 3. **RERANK (the skill does it, not the tool)** — when `[retrieval].rerank = "llm"`:
    - Use only `title` + `snippet` + `matched_by`; **do NOT open files** while scoring.
    - Priority: (a) topical fit over keyword overlap; (b) multi-channel hits; (c) `verified.by: human:*` > unverified; (d) `concept` over `source`/`index`.
@@ -43,10 +44,11 @@ The human asks about content already in the wiki.
 4. **Read selected pages** (`wiki_read`) for detail + provenance. Follow wikilinks. **Snippets only *find* pages — answers come from compiled pages.**
 5. **Synthesize a cited answer**: `[[wiki/<domain>/source/...]]` or URLs from `sources:`; cite `[^id]` footnotes.
    - **[codebase]** Separate intent (requirements/decisions) from observation — never present observation as requirement.
+   - If the answer involves a process or flow that has a Mermaid diagram in the source pages, include the Mermaid fenced block in your answer verbatim — don't fabricate new diagrams.
 6. **Trust-tier check**: `status: draft` or no `verified` → flag "unverified"; past `stale_after` → flag stale.
    - **[codebase]** Cross-check critical claims with `grep` before concluding. **Don't jump to grep before checking the wiki.**
    - Contradiction between pages → **report to human**, never resolve yourself.
-7. Synthesis-worthy answers → **file back as new page** in `wiki/<domain>/concept/...` + update index. New pages do NOT get `verified`.
+7. Synthesis-worthy answers → **file back as new page** in `wiki/<domain>/concept/...` + update index. A synthesis answer is worth filing when it: (a) draws on 3+ pages, (b) would take a search to reconstruct, and (c) doesn't duplicate an existing concept page. New pages do NOT get `verified`. Do NOT copy Mermaid blocks from source pages into synthesis pages unless the diagram accurately represents the synthesized concept — if uncertain, omit the diagram and note "see source diagrams."
    - **[codebase]** Propose-only mode: use `wiki_propose_edit` → `.proposals/`.
 8. Not found → say so, propose ingest. **Never fabricate.**
 
@@ -75,4 +77,5 @@ llm-wiki-base eval --compare  # tier1-weighted / rrf-text / rrf+vector + verdict
 
 - Never fabricate claims absent from wiki/raw.
 - Never cite volatile values (SHA, mtime, counts) — point at the live source.
+- Never fabricate Mermaid diagrams — only embed diagrams that exist verbatim in source pages.
 - `wiki_submit` is for **other AIs' intake**, not for you while maintaining.

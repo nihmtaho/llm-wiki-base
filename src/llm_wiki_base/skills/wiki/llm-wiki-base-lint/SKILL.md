@@ -2,9 +2,9 @@
 name: llm-wiki-base-lint
 description: >
   Health-check the DETERMINISTIC part of the wiki — orphans, broken wikilinks, frontmatter,
-  timestamps, footnote↔sources, index sync, orphan pins, layout. Contradictions / old claims /
-  stale code references belong to `llm-wiki-base-review`. Run periodically or when the human says
-  "lint the wiki".
+  timestamps, footnote↔sources, index sync, orphan pins, diagram integrity, layout.
+  Contradictions / old claims / stale code references belong to `llm-wiki-base-review`. Run
+  periodically or when the human says "lint the wiki".
 id: 32357fa7610e45f39d0eeff6243b039e
 ---
 
@@ -16,7 +16,7 @@ Schema: `_schema.md`. Runbook: `AGENTS.md`.
 
 ## Overview
 
-Runs `llm-wiki-base lint` to detect structural issues, fixes re-derivable content (index entries, dangling DB rows, bad formats), and hands semantic gaps to `llm-wiki-base-review`. Never deletes pages or pins. Never touches semantics. Findings are classified by severity: CRITICAL → WARNING → ADVISORY.
+Runs `llm-wiki-base lint` to detect structural issues, fixes re-derivable content (index entries, dangling DB rows, bad formats), checks diagram file integrity, and hands semantic gaps to `llm-wiki-base-review`. Never deletes pages or pins. Never touches semantics. Findings are classified by severity: CRITICAL → WARNING → ADVISORY.
 
 ## When
 
@@ -36,6 +36,8 @@ Periodically (`llm-wiki-base watch` runs it every `WATCH_LINT_SEC`) or when the 
 
    **WARNING** (structural gap — address in this pass):
    - **broken-wikilink**: `[[target]]` points at nonexistent file → fix the path or create the page.
+   - **broken-diagram-ref**: `<!-- diagram: diagrams/<slug>-N.mmd -->` comment in a wiki page but the `.mmd` file is missing on disk → recreate from the fenced block in the page body, or remove the comment if the block was also removed. `.mmd` files are re-derivable.
+   - **orphan-diagram**: a `.mmd` file exists in `wiki/<domain>/diagrams/` but no wiki page references it via a `<!-- diagram: ... -->` comment → report to human. **Do not delete** — the human decides whether to re-link or discard.
    - **missing-frontmatter**: missing `title`/`domain`/`kind` → backfill (infer from path).
    - **status-vocab**: `status`/`confidence` outside vocab → fix (vocab in `_schema.md`).
    - **timestamp-format**: `updated` not `YYYY-MM-DD`, offset fields not ISO-8601 → fix.
@@ -57,8 +59,8 @@ Periodically (`llm-wiki-base watch` runs it every `WATCH_LINT_SEC`) or when the 
    ```bash
    llm-wiki-base reindex
    ```
-   Incremental. `--check` = dry-run; `--full` on config change. Detail: `llm-wiki-base-reindex` skill.
-5. **Hand semantics to review**: contradictions, old claims, missing concepts, trust gaps → `llm-wiki-base-review`. **No semantics here.**
+   Incremental. `--check` = dry-run; `--full` on config change. `.mmd` files and `*.<lang>.md` translation files are automatically excluded from indexing — lint does not need to handle them. Detail: `llm-wiki-base-reindex` skill.
+5. **Hand semantics to review**: contradictions, old claims, missing concepts, trust gaps, stale diagrams → `llm-wiki-base-review`. **No semantics here.**
 
 ## MCP tools
 
@@ -66,6 +68,7 @@ Periodically (`llm-wiki-base watch` runs it every `WATCH_LINT_SEC`) or when the 
 
 ## Safety
 
-- Lint only reports + auto-fixes the **re-derivable**: index entries, dangling DB rows, formats.
+- Lint only reports + auto-fixes the **re-derivable**: index entries, dangling DB rows, formats, broken-diagram-ref (from page body).
 - **Never delete pages** (even orphans), never delete pins, never touch `wiki/.proposals/`.
+- **Never delete `.mmd` diagram files** — even orphaned ones. Report them; the human decides.
 - **[codebase]** Code-staleness checks are heuristics — confirm with human before updating pages.

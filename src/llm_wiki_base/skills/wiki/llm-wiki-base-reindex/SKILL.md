@@ -15,7 +15,7 @@ Markdown is the source of truth; indexes are **derived** — throwable, rebuilda
 
 Runs `llm-wiki-base reindex` to sync BM25 page, BM25 chunk, and (optionally) vector chunk indexes against current markdown files. Checks config drift first, chooses incremental vs full rebuild, and confirms with numbers. Never commits indexes. Never enables vector without `eval --compare` evidence. Exposes `fusion = "weighted"` as a one-line rollback for unexpected RRF results.
 
-## What's on disk
+## What's indexed — and what's not
 
 | component | location | built when |
 |---|---|---|
@@ -23,9 +23,12 @@ Runs `llm-wiki-base reindex` to sync BM25 page, BM25 chunk, and (optionally) vec
 | `chunks_fts` (BM25 chunk) | `wiki/.wiki.db` | **always** — independent of `vector` |
 | vector chunks (`.json` + `.npy`) | `rag/.rag_index/` | only when `[retrieval].vector = true` |
 
-Both chunk channels share **`tools/chunking.py`** (global runtime at `~/.llm-wiki-base/`) → same boundaries, so RRF between them is meaningful.
+**Explicitly excluded from indexing** (the CLI skips these automatically — no manual intervention needed):
+- `wiki/index.md` + `wiki/log.md`
+- Translation files: `*.<lang>.md`
+- Diagram files: `wiki/<domain>/diagrams/*.mmd` (Mermaid source — diagram content is reachable via the parent wiki page body)
 
-**Never indexed:** `wiki/index.md` + `wiki/log.md`, translations `*.<lang>.md`, frontmatter, verbatim footnotes.
+Both chunk channels share **`tools/chunking.py`** (global runtime at `~/.llm-wiki-base/`) → same boundaries, so RRF between them is meaningful.
 
 ## Modes
 
@@ -34,6 +37,8 @@ llm-wiki-base reindex            # incremental: only new/changed/deleted files b
 llm-wiki-base reindex --check    # dry-run: what would index/delete, config drift, chunk-index state
 llm-wiki-base reindex --full     # full rebuild — MANDATORY after changing chunk_tokens / embed_model / vector / fusion
 ```
+
+The content-hash comparison means incremental reindex is safe and cheap to run after every ingest — only actually changed files are re-processed.
 
 ## Rollback / A-B baseline
 
@@ -57,7 +62,13 @@ Only enable `[retrieval].vector = true` when `llm-wiki-base eval --compare` show
    ```
    `chunks_fts` count must equal `rag/.rag_index/chunks.json` count when `vector = true`.
 4. **Check dead channels**: `llm-wiki-base eval` prints `[ERROR] channel disabled by error` — distinguish config-disabled from broken.
-5. Report: N pages indexed, chunks +/−, vector on/off, drift or not.
+5. Report: N pages indexed, chunks +/−, vector on/off, drift or not. Excluded files (`.mmd`, `*.lang.md`) are not counted in the page total — this is expected.
+
+## Failure recovery
+
+- `[ERROR] FTS5 table corrupt` → `llm-wiki-base reindex --full` (rebuilds from scratch).
+- `[ERROR] embed_model not found` → set `vector = false` in config, run `--full`, then evaluate before re-enabling.
+- Unexpected file count after incremental → run `--check` first to inspect; if still off, `--full`.
 
 ## Relations with other skills
 
@@ -72,3 +83,4 @@ Only enable `[retrieval].vector = true` when `llm-wiki-base eval --compare` show
 - Don't treat the index as truth — markdown wins on disagreement.
 - Don't `--full` without a config change (re-embeds everything with `vector = true`).
 - Don't enable `vector = true` without `eval --compare` evidence.
+- Don't manually exclude `.mmd` or `*.lang.md` files — the CLI handles this.

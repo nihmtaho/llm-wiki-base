@@ -13,7 +13,7 @@ Bilingual wikis: each source page `wiki/<domain>/<kind>/<slug>.md` may have a pa
 
 ## Overview
 
-Translates wiki pages into configured target languages using the running AI tool's LLM. Writes parallel `<slug>.<lang>.md` files, verifies heading structure, and warns on high token cost. Always checks `llm-wiki-base translate status` before starting. Never modifies the source page. Never writes empty files.
+Translates wiki pages into configured target languages using the running AI tool's LLM. Writes parallel `<slug>.<lang>.md` files, verifies heading structure, and warns on high token cost. Always checks `llm-wiki-base translate status` before starting. Never modifies the source page. Never writes empty files. **Never translates Mermaid diagram files (`.mmd`) or Mermaid fenced blocks inside wiki pages.**
 
 ## LLM provider
 
@@ -36,6 +36,7 @@ Always run `llm-wiki-base translate status` before invoking this skill.
 - The user says "translate page X to language Y".
 - After ingesting a new source, if `.llm-wiki-base.toml` has `[translate].enabled = true` → the ingest skill auto-invokes this skill.
 - Re-translate when source updates: `llm-wiki-base translate check --lang <code>` to detect drift.
+- **Skip entirely** for `.mmd` files in `wiki/<domain>/diagrams/` — they contain Mermaid syntax, not natural language.
 
 ## Workflow
 
@@ -49,13 +50,24 @@ Read `.llm-wiki-base.toml`. An explicitly requested lang wins. No target langs i
 
 **b** Split frontmatter + body.
 
-**c** Translate body via the AI tool's LLM:
+**c** Identify **untranslatable regions** in the body before translation:
+   - Fenced code blocks of ANY language, including **`mermaid`** blocks — treated identically to code.
+   - Wikilinks: `[[wiki/<domain>/...]]` — path preserved verbatim; alias text (if any) may be translated.
+   - `<!-- diagram: diagrams/<slug>-N.mmd -->` comments — preserve **verbatim** (structural markers, not prose).
+   - URLs, technical terms (class/function/package names, version numbers, env vars, flags).
+
+**d** Translate body via the AI tool's LLM:
 
 ```
 Translate the following markdown body to language code '<lang>'.
-Preserve all markdown structure, code blocks, wikilinks [[...]], and links [text](url) exactly.
-Translation must be 100% equivalent — no additions, no omissions, no paraphrasing.
-Do NOT translate code blocks, URLs, or technical terms (class/function/package names, version numbers, command flags).
+Rules:
+- Translate natural-language text only.
+- Preserve ALL of the following EXACTLY (character-for-character):
+  - Fenced code blocks including ```mermaid blocks — DO NOT translate Mermaid syntax.
+  - Wikilinks [[...]] path portions.
+  - HTML comments <!-- ... --> verbatim.
+  - URLs, package names, class/function names, version numbers, command flags.
+- No additions, no omissions, no paraphrasing.
 Output ONLY the translated body, no frontmatter, no commentary.
 
 ---
@@ -63,11 +75,15 @@ Output ONLY the translated body, no frontmatter, no commentary.
 ---
 ```
 
-**d** Rejoin with original frontmatter verbatim (provenance, `updated`, `status` unchanged).
+**e** Rejoin with original frontmatter verbatim (provenance, `updated`, `status` unchanged).
 
-**e** Write `wiki/<domain>/<kind>/<slug>.<lang>.md`.
+**f** Write `wiki/<domain>/<kind>/<slug>.<lang>.md`.
 
-**f** Quick verify: heading counts must match source. Mismatch → retry once: "Your previous translation added/removed headings. Try again, EXACTLY the same heading structure."
+**g** Quick verify — all three checks must pass:
+   - **Heading structure**: counts and levels must match source. Mismatch → retry once: *"Your previous translation changed the heading structure. Reproduce EXACTLY the same headings (count, level, order). Only translate heading text, not structure."*
+   - **Mermaid blocks**: count must match source. Mismatch → retry once: *"Your previous translation dropped or altered a ```mermaid block. Keep every mermaid block 100% verbatim."*
+   - **Diagram comments**: `<!-- diagram: ... -->` count must match source. Mismatch → retry once with the same instruction.
+   - Still failing after one retry → flag to user, skip that file, **never write an incomplete file**.
 
 ### 3. After all translations
 
@@ -82,18 +98,19 @@ On mismatch → flag to user, don't self-fix.
 When ingest writes a new source with `[translate].enabled = true`:
 1. Ingest writes source page (EN) as usual.
 2. Per lang in `langs`: invoke this workflow → `<slug>.<lang>.md`.
-3. Reindex — translations auto-skip the DB.
+3. Reindex — translations and `.mmd` files auto-skip the DB.
 
-**Cost note**: N sources × M langs = N×M LLM calls. Warn when: `len(langs) > 5` ("5+ target langs, token-heavy. Confirm?") or `N sources > 20` ("suggest batching").
+**Cost note**: N sources × M langs = N×M LLM calls. Warn when: `len(langs) > 5` ("5+ target langs, token-heavy. Confirm?") or `N sources > 20` ("suggest batching in groups of 10").
 
 ## Constraints
 
-- **Don't translate code blocks, URLs, technical terms** (class/function names, package names, version numbers, flags, env vars).
+- **Never translate Mermaid fenced blocks** — they are code, not prose.
+- **Never translate `.mmd` files** — skip them unconditionally; they are Mermaid source files.
 - **Don't paraphrase** — translate natural text only.
 - **Frontmatter verbatim** — `sources`, `updated`, `status` unchanged.
-- **Heading structure preserved** — count + levels + text must match source.
-- **Wikilinks preserved** — `[[wiki/<domain>/...]]` path unchanged; don't localize alias text.
-- **Code blocks** — kept 100%.
+- **Heading structure preserved** — count + levels must match source.
+- **Wikilinks preserved** — `[[wiki/<domain>/...]]` path unchanged; alias text may be translated.
+- **Code blocks and HTML comments preserved** — kept 100% verbatim.
 
 ## Safety
 
