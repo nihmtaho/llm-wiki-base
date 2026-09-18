@@ -6,6 +6,36 @@ Versioning follows [SemVer 2.0.0](https://semver.org/); tags are `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-18
+
+### Added
+
+- `llm-wiki-base-ingest`: Mermaid diagrams found in a source are now ingested
+  into knowledge pages. Diagrams that describe one concept/entity are embedded
+  inline in the matching concept/entity page (with a provenance comment);
+  system-level or standalone diagrams are additionally saved as
+  `wiki/<domain>/diagrams/<source-slug>-N.mmd` and referenced with a
+  `<!-- diagram: ... -->` comment. `.mmd` files are never translated or indexed.
+- Diagram awareness across the skill chain: `llm-wiki-base-query` prefers
+  diagram-bearing pages and can return the fenced block verbatim,
+  `llm-wiki-base-lint` checks for broken `.mmd` references and orphan diagrams,
+  `llm-wiki-base-review` flags `stale-diagram` gaps, and
+  `llm-wiki-base-consolidate` folds diagrams into canonical concept pages.
+
+### Changed
+
+- Skill docs across `ingest`, `lint`, `query`, `reindex`, `review`,
+  `translate`, `consolidate`, and `research` now use explicit `## Overview` and
+  `## Workflow` sections; ingest stops when a source is already fully covered and
+  reports diagram counts / extracted `.mmd` paths.
+- `llm-wiki-base-translate` verifies heading structure, never writes empty
+  files, and treats Mermaid fenced blocks and `<!-- diagram: ... -->` comments as
+  code (kept verbatim, never translated).
+- Removed legacy duplicate skill copies at the repo root
+  (`.agents/skills/llm-wiki-base-{ingest,lint,query}` and their
+  `.claude/skills` + `.opencode/commands` links); the canonical copies under
+  `src/llm_wiki_base/skills/` are now the single source.
+
 ## [0.1.4] - 2026-09-14
 
 ### Added
@@ -123,7 +153,8 @@ First release.
   `docs/` (`cli`, `retrieval-eval`, `mcp`, `upgrading`, `translation`),
   animated `docs/wiki-flow.html`.
 
-[Unreleased]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.1...v0.1.2
