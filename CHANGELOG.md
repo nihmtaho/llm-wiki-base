@@ -6,6 +6,27 @@ Versioning follows [SemVer 2.0.0](https://semver.org/); tags are `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-06
+
+### Added
+
+- `llm-wiki-base translate migrate --lang <code>` moves legacy inline
+  `<slug>.<lang>.md` files into the new `wiki-<lang>/<domain>/<kind>/<slug>.md`
+  layout; an existing target file is never overwritten.
+- `llm-wiki-base translate check` now also reports orphan translations whose
+  source page was deleted or renamed (reported, never auto-deleted).
+
+### Changed
+
+- Translations now live in parallel `wiki-<lang>/` trees mirroring `wiki/`
+  path-for-path instead of inline `<slug>.<lang>.md` files. The trees are
+  siblings of `wiki/`, so they never enter the DB/RAG index; existing wikis
+  should run `llm-wiki-base translate migrate --lang <code>` once.
+- The skip rules in `ingest`, `reindex`, and `watch` accept both layouts
+  (`wiki-<lang>/` trees and legacy `*.lang.md` files).
+- Docs (`translation`, `cli`, `retrieval-eval`, `tier3-roadmap`) and the
+  `llm-wiki-base-translate` skill describe the mirror-tree layout.
+
 ## [0.1.5] - 2026-09-18
 
 ### Added
@@ -153,7 +174,8 @@ First release.
   `docs/` (`cli`, `retrieval-eval`, `mcp`, `upgrading`, `translation`),
   animated `docs/wiki-flow.html`.
 
-[Unreleased]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.2...v0.1.3
