@@ -9,6 +9,7 @@ The wiki is a cumulatively-built artifact maintained by an LLM. Compile once, ke
 - `raw/inbox/` — staging. New files awaiting ingest. Mutable while humans/AIs drop files in.
 - `raw/` — **local cache** post-ingest (URL and non-URL alike). **Deletable at will** — provenance lives in the page's `sources:` field. Gitignored by default.
 - `wiki/` — markdown generated/maintained by the LLM. The LLM owns this layer. **This is the real knowledge** (curated, cross-linked, persistent).
+- `wiki-<lang>/` — one parallel tree per translation target (e.g. `wiki-vi/`), mirroring `wiki/` path-for-path. Derived from `wiki/`, never indexed. See [Translations](#translations).
 
 Move rules:
 - Sources with OR without a URL → all move from `raw/inbox/` to `raw/`. Provenance differs only in the `sources:` field (URL = strong, `[]` = weak).
@@ -98,6 +99,26 @@ sources: []
 
 **Backwards-compat:** old pages with only `category: <folder>` (no `domain`/`kind`) → inferred automatically from path.
 
+## Translations
+
+Optional, off by default (`[translate]` in `.llm-wiki-base.toml`). One canonical tree `wiki/`
+(source language, set by `[wiki].lang`) + one mirror tree per target lang, named `wiki-<lang>/`:
+
+```
+wiki/<domain>/<kind>/<slug>.md   ⇄   wiki-<lang>/<domain>/<kind>/<slug>.md
+```
+
+- **Placement**: siblings at the wiki root — a translation is NEVER written inline as
+  `<slug>.<lang>.md` inside `wiki/` (legacy layout; migrated by `llm-wiki-base translate migrate`).
+- **Content**: same frontmatter keys as the source (`title`, `domain`, `kind`, `sources`,
+  `updated`, `status`); body an exact translation (code/URLs/terms/`[[wikilinks]]` preserved,
+  Mermaid blocks verbatim). `wiki/log.md` is never translated.
+- **Indexing**: `wiki-<lang>/` is outside the index roots (`wiki/` + `raw/`) → BM25/RAG never
+  see it. Legacy `*.<lang>.md` files are still skipped by the CLI.
+- **Tooling**: `llm-wiki-base translate enable|disable|status|check|migrate` — CLI is
+  deterministic; the actual translation is the `llm-wiki-base-translate` skill (AI tool's LLM).
+  `check` verifies the mirror (missing/orphan/mismatched pages); `migrate` moves legacy files.
+
 ## Wikilinks
 
 - **Full path only**: `[[wiki/<domain>/<kind>/<slug>]]`.
@@ -167,7 +188,7 @@ throwable, rebuildable — NEVER commit.
   Concept path + `sources[].id` — trust tier preserved, never quote raw chunks.
 - Chunk = semantic section (by heading, heading kept as context), excluding
   frontmatter + verbatim footnotes. Reserved `index.md`/`log.md` and
-  `*.lang.md` translations are **never** chunked.
+  `wiki-<lang>/` translation trees (legacy `*.lang.md`) are **never** chunked.
 - **Deterministic fallback**: missing model/embeddings/chunks → structural + BM25.
   "No model" ≠ "broken". Eval prints `[ERROR] channel disabled by error` when a channel
   dies of a real error (vs "disabled by config").

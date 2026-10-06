@@ -62,7 +62,7 @@ A new source lands in `raw/inbox/` — dropped by a human, produced by `scripts/
    - Every new page needs at least 1 outbound wikilink.
    - **Mermaid in knowledge pages**: for every diagram classified as **non-special** in step 4, embed it inline in the most relevant concept/entity page (the knowledge file). This is the default — embed unless the diagram is special. See [Non-special path](#non-special-inline-path) below.
    - **[codebase]** kinds: `entity` = library/tool; `concept` = pattern/architecture; `source` = doc summary; `task` = task tracking.
-6. **Auto-translation (if enabled)**: run `llm-wiki-base translate status` first. If `[translate].enabled = true` and `langs` non-empty: call **`llm-wiki-base-translate`** for each new page. `len(langs) > 5` or pages > 20 → warn before calling. `enabled = false` → skip silently. **`.mmd` files are never translated** — skip them.
+6. **Auto-translation (if enabled)**: run `llm-wiki-base translate status` first. If `[translate].enabled = true` and `langs` non-empty: call **`llm-wiki-base-translate`** for each new page — it writes mirror files to `wiki-<lang>/<domain>/<kind>/<slug>.md` (sibling tree of `wiki/`, never inline). `len(langs) > 5` or pages > 20 → warn before calling. `enabled = false` → skip silently. **`.mmd` files are never translated** — skip them.
 7. Update `wiki/<domain>/index.md`. **New domain** → add row to `wiki/index.md`. Include diagram count: if diagrams were created, append `(+N diagrams)` to the domain index row for this source page.
 8. Insert into `wiki/log.md` (reverse-chronological): `## [YYYY-MM-DD HH:MM:SS] ingest | <title>`.
    - Date = `updated` from source page frontmatter. Use **Edit anchored at next entry** — **NEVER rewrite the whole file, NEVER `cat >>`**.

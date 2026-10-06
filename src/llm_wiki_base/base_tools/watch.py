@@ -108,7 +108,8 @@ def scan_wiki(c, prov):
         if any(s in SKIP_DIRS for s in parts) or parts[-1].startswith("."):
             continue
         if TRANSLATED_SUFFIX_RE.search(os.path.basename(fp)):
-            # bản dịch (.lang.md) — KHÔNG index
+            # bản dịch legacy (.lang.md) — KHÔNG index. Cây mới wiki-<lang>/ nằm
+            # ngoài glob wiki/ nên tự động không lọt vào đây.
             continue
         rel = os.path.relpath(fp, WIKI_ROOT)
         mtime = os.path.getmtime(fp)

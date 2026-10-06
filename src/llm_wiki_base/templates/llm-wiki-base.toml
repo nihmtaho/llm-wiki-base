@@ -12,7 +12,7 @@ lang = "en"                   # ngôn ngữ agent PHẢI viết page khi ingest/
 
 [translate]
 enabled = false               # true → ingest tự gọi skill llm-wiki-base-translate cho mỗi page mới
-langs = []                    # vd ["vi", "ja"]
+langs = []                    # vd ["vi", "ja"] — mỗi lang có cây mirror wiki-<lang>/ (sibling wiki/), không index
 
 [models]
 # HỢP ĐỒNG CHO SKILL LAYER — Python pipeline KHÔNG gọi LLM và không đọc section này.

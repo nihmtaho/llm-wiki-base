@@ -19,6 +19,10 @@ import re
 # Bản dịch (.slug.<lang>.md) KHÔNG vào bất kỳ index nào (BM25 lẫn vector).
 TRANSLATED_SUFFIX_RE = re.compile(r"\.[a-z]{2,3}\.md$")
 
+# Cây dịch v0.2+: `wiki-<lang>/` là sibling của `wiki/`. Indexer chỉ glob
+# `wiki/` + `raw/` nên cây này tự động ngoài index; regex dùng cho path tường minh.
+TRANSLATED_DIR_RE = re.compile(r"^wiki-[a-z]{2,3}(?:/|$)")
+
 # Frontmatter block ở đầu file.
 FM_RE = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
 
@@ -37,8 +41,11 @@ def is_reserved(rel: str) -> bool:
 
 
 def is_translated(rel: str) -> bool:
-    """True nếu file là bản dịch (match `*.lang.md`)."""
-    return bool(TRANSLATED_SUFFIX_RE.search(os.path.basename(rel)))
+    """True nếu file là bản dịch: cây `wiki-<lang>/` (v0.2+) hoặc legacy `*.lang.md`."""
+    norm = (rel or "").replace("\\", "/")
+    if TRANSLATED_DIR_RE.match(norm):
+        return True
+    return bool(TRANSLATED_SUFFIX_RE.search(os.path.basename(norm)))
 
 
 def clean_body(text: str) -> str:

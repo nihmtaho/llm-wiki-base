@@ -59,7 +59,7 @@ Periodically (`llm-wiki-base watch` runs it every `WATCH_LINT_SEC`) or when the 
    ```bash
    llm-wiki-base reindex
    ```
-   Incremental. `--check` = dry-run; `--full` on config change. `.mmd` files and `*.<lang>.md` translation files are automatically excluded from indexing — lint does not need to handle them. Detail: `llm-wiki-base-reindex` skill.
+   Incremental. `--check` = dry-run; `--full` on config change. `.mmd` files and translation trees (`wiki-<lang>/`, plus legacy `*.<lang>.md`) are automatically excluded from indexing — lint does not need to handle them. Detail: `llm-wiki-base-reindex` skill.
 5. **Hand semantics to review**: contradictions, old claims, missing concepts, trust gaps, stale diagrams → `llm-wiki-base-review`. **No semantics here.**
 
 ## MCP tools

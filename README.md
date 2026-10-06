@@ -205,7 +205,7 @@ root):
 | `llm-wiki-base-reindex` | wiki | build/diagnose derived indexes: `--check`, `--full`, dead channels |
 | `llm-wiki-base-review` | wiki | **semantic** health-check: contradictions, staleness, trust gaps → `wiki/alerts/` |
 | `llm-wiki-base-consolidate` | wiki | merge scattered logs/notes → canonical concepts (additive, distill-verify) |
-| `llm-wiki-base-translate` | wiki | translate pages into `[translate].langs` (AI tool's LLM) |
+| `llm-wiki-base-translate` | wiki | translate pages into `wiki-<lang>/` mirror trees by `[translate].langs` (AI tool's LLM) |
 | `llm-wiki-base-contribute` | **global** | draft + stage wiki pages: schema-valid markdown → `wiki/.proposals/`, new sources → `raw/inbox/`. AI proposes, human decides. |
 | `llm-wiki-base-research` | **codebase root** | research **across wikis** via centralized MCP |
 

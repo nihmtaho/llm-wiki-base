@@ -140,7 +140,8 @@ anything added later.
 llm-wiki-base translate enable --lang vi --lang ja   # written to .llm-wiki-base.toml (comments kept)
 llm-wiki-base translate status                       # show state
 llm-wiki-base translate disable                      # off, langs kept
-llm-wiki-base translate check --lang vi              # verify frontmatter + heading sync
+llm-wiki-base translate check --lang vi              # verify wiki-vi/ mirrors wiki/
+llm-wiki-base translate migrate --lang vi            # move legacy <slug>.vi.md → wiki-vi/
 ```
 
 Details: [translation.md](translation.md).

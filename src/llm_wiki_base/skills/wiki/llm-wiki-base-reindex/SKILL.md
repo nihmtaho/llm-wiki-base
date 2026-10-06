@@ -25,7 +25,7 @@ Runs `llm-wiki-base reindex` to sync BM25 page, BM25 chunk, and (optionally) vec
 
 **Explicitly excluded from indexing** (the CLI skips these automatically — no manual intervention needed):
 - `wiki/index.md` + `wiki/log.md`
-- Translation files: `*.<lang>.md`
+- Translation trees: `wiki-<lang>/` (sibling of `wiki/`, outside the index roots) + legacy `*.<lang>.md`
 - Diagram files: `wiki/<domain>/diagrams/*.mmd` (Mermaid source — diagram content is reachable via the parent wiki page body)
 
 Both chunk channels share **`tools/chunking.py`** (global runtime at `~/.llm-wiki-base/`) → same boundaries, so RRF between them is meaningful.
@@ -62,7 +62,7 @@ Only enable `[retrieval].vector = true` when `llm-wiki-base eval --compare` show
    ```
    `chunks_fts` count must equal `rag/.rag_index/chunks.json` count when `vector = true`.
 4. **Check dead channels**: `llm-wiki-base eval` prints `[ERROR] channel disabled by error` — distinguish config-disabled from broken.
-5. Report: N pages indexed, chunks +/−, vector on/off, drift or not. Excluded files (`.mmd`, `*.lang.md`) are not counted in the page total — this is expected.
+5. Report: N pages indexed, chunks +/−, vector on/off, drift or not. Excluded files (`.mmd`, `wiki-<lang>/` trees, legacy `*.lang.md`) are not counted in the page total — this is expected.
 
 ## Failure recovery
 
@@ -83,4 +83,4 @@ Only enable `[retrieval].vector = true` when `llm-wiki-base eval --compare` show
 - Don't treat the index as truth — markdown wins on disagreement.
 - Don't `--full` without a config change (re-embeds everything with `vector = true`).
 - Don't enable `vector = true` without `eval --compare` evidence.
-- Don't manually exclude `.mmd` or `*.lang.md` files — the CLI handles this.
+- Don't manually exclude `.mmd`, `wiki-<lang>/` translation trees, or legacy `*.lang.md` files — the CLI handles this.

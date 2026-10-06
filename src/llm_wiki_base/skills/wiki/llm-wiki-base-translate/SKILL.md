@@ -1,19 +1,28 @@
 ---
 name: llm-wiki-base-translate
-description: Translate 1 or more wiki pages into configured target languages. Uses the running AI tool's LLM (Claude Code → Claude, OpenCode → provider). Translations are parallel <slug>.<lang>.md files, excluded from DB/RAG. Use when the user says "translate page X to Vietnamese" or after ingest with target langs enabled.
+description: Translate 1 or more wiki pages into configured target languages. Uses the running AI tool's LLM (Claude Code → Claude, OpenCode → provider). Each translation is a mirror file under `wiki-<lang>/` (sibling of `wiki/`), excluded from DB/RAG. Use when the user says "translate page X to Vietnamese" or after ingest with target langs enabled.
 id: 2d4debaf0830458a9efbe5b6cd4a068c
 ---
 
 # llm-wiki-base Translate
 
-Bilingual wikis: each source page `wiki/<domain>/<kind>/<slug>.md` may have a parallel translation `wiki/<domain>/<kind>/<slug>.<lang>.md`. Translations:
+Bilingual wikis: the canonical tree is `wiki/`; each target language gets a **parallel
+tree** `wiki-<lang>/` that mirrors `wiki/` path-for-path:
+
+```
+wiki/<domain>/<kind>/<slug>.md   →   wiki-<lang>/<domain>/<kind>/<slug>.md
+```
+
+Translations:
 - Same frontmatter keys as the source (`title`, `domain`, `kind`, `sources`, `updated`, `status`).
 - Body 100% equivalent — no additions, no omissions, no paraphrasing.
-- **Excluded from DB/RAG** (`*.lang.md` skip rule in `tools/{ingest,reindex,watch}.py` + `rag/index.py`).
+- **Never indexed**: `wiki-<lang>/` is a sibling of `wiki/`, outside the index roots
+  (`wiki/` + `raw/`), so BM25/RAG skip it automatically. Legacy inline `<slug>.<lang>.md`
+  files (old layout) are still skipped by the CLI.
 
 ## Overview
 
-Translates wiki pages into configured target languages using the running AI tool's LLM. Writes parallel `<slug>.<lang>.md` files, verifies heading structure, and warns on high token cost. Always checks `llm-wiki-base translate status` before starting. Never modifies the source page. Never writes empty files. **Never translates Mermaid diagram files (`.mmd`) or Mermaid fenced blocks inside wiki pages.**
+Translates wiki pages into configured target languages using the running AI tool's LLM. Writes mirror pages under `wiki-<lang>/...`, verifies heading structure, and warns on high token cost. Always checks `llm-wiki-base translate status` before starting. Never modifies the source page. Never writes empty files. **Never translates Mermaid diagram files (`.mmd`) or Mermaid fenced blocks inside wiki pages.**
 
 ## LLM provider
 
@@ -27,6 +36,7 @@ llm-wiki-base translate disable             # set enabled = false (pauses withou
 llm-wiki-base translate status              # show current config: enabled, langs, drift stats
 llm-wiki-base translate check               # check all translations for drift
 llm-wiki-base translate check --lang <code> # check drift for a specific lang
+llm-wiki-base translate migrate --lang <code> # move legacy <slug>.<lang>.md → wiki-<lang>/
 ```
 
 Always run `llm-wiki-base translate status` before invoking this skill.
@@ -77,7 +87,9 @@ Output ONLY the translated body, no frontmatter, no commentary.
 
 **e** Rejoin with original frontmatter verbatim (provenance, `updated`, `status` unchanged).
 
-**f** Write `wiki/<domain>/<kind>/<slug>.<lang>.md`.
+**f** Write the mirror path: `wiki-<lang>/<domain>/<kind>/<slug>.md` — the **same relative
+path as the source**, only the tree root changes (`wiki/` → `wiki-<lang>/`). Create parent
+directories as needed. Never write back into `wiki/`.
 
 **g** Quick verify — all three checks must pass:
    - **Heading structure**: counts and levels must match source. Mismatch → retry once: *"Your previous translation changed the heading structure. Reproduce EXACTLY the same headings (count, level, order). Only translate heading text, not structure."*
@@ -97,15 +109,28 @@ On mismatch → flag to user, don't self-fix.
 
 When ingest writes a new source with `[translate].enabled = true`:
 1. Ingest writes source page (EN) as usual.
-2. Per lang in `langs`: invoke this workflow → `<slug>.<lang>.md`.
-3. Reindex — translations and `.mmd` files auto-skip the DB.
+2. Per lang in `langs`: invoke this workflow → `wiki-<lang>/<domain>/<kind>/<slug>.md`.
+3. Reindex — translations (outside `wiki/`) and `.mmd` files auto-skip the DB/RAG.
 
 **Cost note**: N sources × M langs = N×M LLM calls. Warn when: `len(langs) > 5` ("5+ target langs, token-heavy. Confirm?") or `N sources > 20` ("suggest batching in groups of 10").
 
+## Migrating the old layout
+
+Old wikis store translations inline as `wiki/**/<slug>.<lang>.md`. Move them to the mirror
+tree once per lang (idempotent, never overwrites an existing target):
+
+```bash
+llm-wiki-base translate migrate --lang vi
+```
+
+Then re-run `llm-wiki-base translate check --lang vi` to confirm the mirror is complete.
+
 ## Constraints
 
+- **One tree per lang** — `wiki-<lang>/` mirrors `wiki/`; never nest translations inside `wiki/`.
 - **Never translate Mermaid fenced blocks** — they are code, not prose.
 - **Never translate `.mmd` files** — skip them unconditionally; they are Mermaid source files.
+- **Never translate `wiki/log.md`** — append-only history, language-agnostic.
 - **Don't paraphrase** — translate natural text only.
 - **Frontmatter verbatim** — `sources`, `updated`, `status` unchanged.
 - **Heading structure preserved** — count + levels must match source.

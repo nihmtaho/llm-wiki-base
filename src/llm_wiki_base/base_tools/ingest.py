@@ -3,7 +3,7 @@ import sys
 
 import db
 import search
-from chunking import TRANSLATED_SUFFIX_RE, is_reserved
+from chunking import is_reserved, is_translated
 from config_file import effective, get_config
 from embed import DEFAULT_MODEL, EmbedProvider
 
@@ -21,12 +21,12 @@ def main():
     if not os.path.exists(full):
         print(f"not found: {full}")
         sys.exit(1)
-    if TRANSLATED_SUFFIX_RE.search(os.path.basename(full)):
-        print(f"skip: {full} là bản dịch (match *.lang.md), không index. Chạy llm-wiki-base translate add để tạo bản dịch.")
+    rel = os.path.relpath(full, root)
+    if is_translated(rel):
+        print(f"skip: {full} là bản dịch (cây wiki-<lang>/ hoặc *.lang.md), không index.")
         sys.exit(0)
     with open(full, encoding="utf-8") as f:
         content = f.read()
-    rel = os.path.relpath(full, root)
     if rel.replace(os.sep, "/").startswith("wiki/") and is_reserved(rel):
         print(f"skip: {full} là file hạ tầng (index.md/log.md), không index.")
         sys.exit(0)

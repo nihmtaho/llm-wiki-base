@@ -85,7 +85,8 @@ def _collect_files() -> list[tuple[str, str]]:
             if any(s in SKIP_DIRS for s in parts) or parts[-1].startswith("."):
                 continue
             if TRANSLATED_SUFFIX_RE.search(os.path.basename(fp)):
-                # bản dịch (.lang.md) — KHÔNG index
+                # bản dịch legacy (.lang.md) — KHÔNG index. Cây mới wiki-<lang>/
+                # nằm ngoài glob WIKI_DIR/RAW_DIR nên tự động không lọt vào đây.
                 continue
             if rel.replace(os.sep, "/").startswith("wiki/") and is_reserved(rel):
                 # index.md/log.md là hạ tầng, không phải concept (song song sync_chunks)
