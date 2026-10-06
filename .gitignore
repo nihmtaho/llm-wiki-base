@@ -26,6 +26,7 @@ dist/
 .superpowers/
 
 # Local AI-tool state (per-user, never tracked)
+.mcp.json
 .claude/CLAUDE.md
 .claude/settings.json
 .claude/.headroom_wrap_settings.lock
