@@ -144,3 +144,43 @@ def test_extract_claim_anchor(tmp_path, monkeypatch):
                       note=None, src_footnote=None,
                       origin="inline") in links
     assert len(links) == 2
+
+
+def test_skip_fenced_code_blocks(tmp_path, monkeypatch):
+    graph = _load_graph(tmp_path, monkeypatch)
+    txt = (
+        "# x\n"
+        "\n"
+        "```markdown\n"
+        "[[wiki/fenced.md|rel:contrast-with]]\n"
+        "[[wiki/fenced-plain.md]]\n"
+        "```\n"
+        "\n"
+        "Real: [[wiki/real.md|rel:example-of]]\n"
+        "\n"
+        "## Claims\n"
+        "\n"
+        "```text\n"
+        "- fake claim.[^s9] [[wiki/fake.md|rel:contradicts]]\n"
+        "```\n"
+        "\n"
+        "- real claim.[^s2] "
+        "[[wiki/real-claim.md#claims|rel:contradicts]]\n"
+        "\n"
+        "## Other\n"
+    )
+    links = graph.extract_links(txt)
+    dsts = {l.dst for l in links}
+    # Link trong fence → không trích (không phantom edge).
+    assert "wiki/fenced.md" not in dsts
+    assert "wiki/fenced-plain.md" not in dsts
+    # Fence trong ## Claims → bullet + link trong đó không contribute.
+    assert "wiki/fake.md" not in dsts
+    # Link ngoài fence vẫn trích bình thường (test không pass vacuum).
+    assert graph.Link(rel="example-of", dst="wiki/real.md",
+                      note=None, src_footnote=None,
+                      origin="inline") in links
+    assert graph.Link(rel="contradicts", dst="wiki/real-claim.md#claims",
+                      note="real claim.", src_footnote=None,
+                      origin="inline") in links
+    assert len(links) == 2
