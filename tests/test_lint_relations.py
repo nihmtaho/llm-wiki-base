@@ -184,7 +184,7 @@ def test_canonical_frontmatter_prose_no_finding(tmp_path, monkeypatch):
     db, lint, conn = _load_lint(tmp_path, monkeypatch)
     _target(tmp_path, "wiki/languages/source/shinkanzen3.md")
     _target(tmp_path, "wiki/languages/source/minna1.md")
-    path = _page(db, conn, tmp_path, "wiki/languages/concept/ba.md",
+    _page(db, conn, tmp_path, "wiki/languages/concept/ba.md",
         "---\ntitle: ba\ndomain: languages\nkind: concept\nrelations:\n"
         "  - rel: covered-in\n"
         "    target: wiki/languages/source/shinkanzen3.md\n"
@@ -203,7 +203,7 @@ def test_no_pack_no_unknown_rel(tmp_path, monkeypatch):
     giữ nguyên hành vi — kể cả targets constraint)."""
     db, lint, conn = _load_lint(tmp_path, monkeypatch)  # không có toml
     _target(tmp_path, "wiki/tech/concept/x.md")
-    path = _page(db, conn, tmp_path, "wiki/tech/concept/a.md",
+    _page(db, conn, tmp_path, "wiki/tech/concept/a.md",
         "---\ntitle: a\ndomain: tech\nkind: concept\nrelations:\n"
         "  - rel: vague-rel\n"
         "    target: wiki/tech/concept/x.md\n"

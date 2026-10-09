@@ -196,7 +196,7 @@ def test_skip_fenced_code_blocks(tmp_path, monkeypatch):
         "## Other\n"
     )
     links = graph.extract_links(txt)
-    dsts = {l.dst for l in links}
+    dsts = {link.dst for link in links}
     # Link trong fence → không trích (không phantom edge).
     assert "wiki/fenced.md" not in dsts
     assert "wiki/fenced-plain.md" not in dsts
