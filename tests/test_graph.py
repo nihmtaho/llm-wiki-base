@@ -423,6 +423,26 @@ def test_validate_unknown_rel(tmp_path, monkeypatch):
     ) == []
 
 
+def test_validate_core_rels_with_pack(tmp_path, monkeypatch):
+    """CORE_RELS ('related', 'contradicts') hợp lệ kể cả khi wiki bật pack.
+
+    schema-notes của pack dạy claim-vs-claim `rel:contradicts` (spec §5.3) —
+    pack không được chặn core vocab; chỉ rel lạ mới error.
+    """
+    graph, pack = _japanese_pack(tmp_path, monkeypatch)
+    links = [
+        graph.Link(rel="contradicts",
+                   dst="wiki/languages/grammar-point/ba.md#claims",
+                   note="claim.", src_footnote=None, origin="inline"),
+        graph.Link(rel="vague-rel", dst="wiki/x.md", note=None,
+                   src_footnote=None, origin="wikilink"),
+    ]
+    errors = graph.validate_links(links, pack)
+    assert len(errors) == 1  # contradicts OK; chỉ rel lạ lỗi
+    assert "vague-rel" in errors[0]
+    assert "contradicts" not in errors[0]
+
+
 def test_validate_targets_constraint(tmp_path, monkeypatch):
     """covered-in (targets=[source]) chỉ nhận dst là .../source/... path."""
     graph, pack = _japanese_pack(tmp_path, monkeypatch)

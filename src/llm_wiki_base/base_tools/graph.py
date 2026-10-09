@@ -30,6 +30,12 @@ _FOOTNOTE_REF_RE = re.compile(r"\[\^([A-Za-z0-9_-]+)\]")
 RESERVED_REL_PREFIX = "rel:"
 DEFAULT_REL = "related"
 
+# Core relation vocabulary — LUÔN hợp lệ kể cả khi wiki bật langpack, vì ý nghĩa
+# độc lập ngôn ngữ: 'related' = default wikilink edge, 'contradicts' = claim-vs-claim
+# (spec §5.3 — schema-notes của pack dạy `rel:contradicts`). Pack vocabulary là
+# UNION thêm, không thay core.
+CORE_RELS = frozenset({"related", "contradicts"})
+
 # Priority dedup: frontmatter > inline > wikilink (số nhỏ hơn thắng).
 _ORIGIN_PRIORITY = {"frontmatter": 0, "inline": 1, "wikilink": 2}
 
@@ -244,8 +250,9 @@ def validate_links(links: list[Link], pack: dict | None) -> list[str]:
 
     - pack=None → [] LUÔN: wiki không langpack không bị validate (zero
       behavior change — parser bỏ qua pack entirely).
-    - `unknown-rel-type`: rel không có trong pack['relations']. DEFAULT_REL
-      ('related') LUÔN được phép, kể cả khi pack không khai entry riêng.
+    - `unknown-rel-type`: rel không có trong CORE_RELS lẫn pack['relations'].
+      CORE_RELS ('related', 'contradicts') LUÔN hợp lệ — kể cả khi pack không
+      khai entry riêng (union core + pack, không phải pack-only).
     - `relation-target-kind`: rel có ràng buộc `targets: [...]` mà dst không
       nằm trong kind path tương ứng (vd covered-in → dst phải qua `source/`).
     """
@@ -256,7 +263,7 @@ def validate_links(links: list[Link], pack: dict | None) -> list[str]:
     errors: list[str] = []
     for link in links:
         rel = link.rel
-        if rel != DEFAULT_REL and rel not in rels:
+        if rel not in CORE_RELS and rel not in rels:
             errors.append(
                 f"unknown-rel-type: rel {rel!r} không có trong langpack "
                 f"{name!r} (dst {link.dst})")
