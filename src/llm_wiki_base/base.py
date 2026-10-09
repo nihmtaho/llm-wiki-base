@@ -72,6 +72,15 @@ def install_base(base_dir: Path | None = None, force: bool = False) -> Path:
         if src.exists():
             (base / "templates").mkdir(exist_ok=True)
             shutil.copy2(src, base / "templates" / tpl)
+    # langpacks/ — graph.load_langpack resolve templates/langpacks/<pack>/ từ
+    # dirname(dirname(graph.__file__)) = <base>/ khi deploy (tools/ graph.py),
+    # nên pack phải về đây cùng tools/. Recursive (kinds.yml/relations.yml/
+    # schema-notes.md per pack); source chưa có → bỏ qua im lặng (cùng posture
+    # với loop trên).
+    lp_src = package_path("templates", "langpacks")
+    if lp_src.is_dir():
+        _copy_tree_filtered(lp_src, base / "templates" / "langpacks",
+                            exclude={"__pycache__"})
 
     # 3. Create / reuse venv + pip install
     py_bin = ensure_venv(base, force=force)
