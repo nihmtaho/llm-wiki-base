@@ -4,6 +4,7 @@ import sys
 from datetime import datetime
 
 import db
+import graph
 from config_file import get_config
 
 _URL_RE = re.compile(r"^https?://")
@@ -179,6 +180,120 @@ def _check_wikilinks(path: str, txt: str, WIKI_ROOT: str, add, linked: set) -> N
             add(path, f"broken-wikilink (line {line_no}): [[{target}]] trỏ tới file không tồn tại")
 
 
+def _check_relations(path: str, txt: str, WIKI_ROOT: str, add, pack) -> list[str]:
+    """Typed-relation + claims rules (spec §8). Trả list message CRITICAL (đã add).
+
+    - `broken-relation-target` (CRITICAL): dst của link (typed lẫn default edge
+      `related`) trỏ file không tồn tại — links table có edge gãy (spec §4.2).
+      Strip `#anchor` trước khi check (anchor là section-level, §5.3).
+    - `unknown-rel-type` / `relation-target-kind` (CRITICAL): validate_links
+      theo langpack — string pass-through (validate_links đã gắn đúng token;
+      ruling Task 4: 2 token RIÊNG, không gộp).
+    - `langpack-field-missing` (CRITICAL): page khớp kind `path` của pack thiếu
+      required field trong frontmatter (chỉ khi pack on).
+    - `claim-without-footnote` (CRITICAL): bullet trong `## Claims` không cite
+      `[^id]` (§5.3 — mỗi bullet = 1 claim atom kèm provenance).
+    - `relation-without-note` (advisory): contrast-with/contradicts không note.
+    - `inline-rel-vs-alias` (advisory): cùng dst nhưng nhiều định nghĩa rel khác
+      nhau — typed vs plain-alias, hoặc 2 typed khác rel (§5.2).
+
+    Tất cả qua `add` (channel findings chung): advisory gắn hậu tố "(advisory)"
+    (cùng mẫu banned-terms), CRITICAL gắn "(CRITICAL)" + được trả về để lint()
+    cộng vào `critical_count`. Không rule nào auto-fix (spec §8: chỉ content
+    re-derivable mới được --fix).
+    """
+    critical: list[str] = []
+
+    def _add_critical(msg: str) -> None:
+        full = f"{msg} (CRITICAL)"
+        add(path, full)
+        critical.append(full)
+
+    links = graph.extract_links(txt)
+
+    # broken-relation-target — check existence như _check_wikilinks, có thêm
+    # typed edges (graph.extract_links không cho vị trí → không có line number).
+    for link in links:
+        dst = link.dst.split("#", 1)[0].strip()
+        if not dst or _URL_RE.match(dst):
+            continue
+        norm = dst if dst.endswith(".md") else dst + ".md"
+        if not os.path.exists(os.path.join(WIKI_ROOT, norm)):
+            _add_critical(
+                f"broken-relation-target: rel {link.rel!r} → {link.dst!r} "
+                f"trỏ tới file không tồn tại"
+            )
+
+    if pack is not None:
+        # unknown-rel-type / relation-target-kind — pass-through string có sẵn
+        # token; severity gắn thêm, không sửa nội dung error.
+        for err in graph.validate_links(links, pack):
+            _add_critical(err)
+
+        # langpack-field-missing — page dưới kind path của pack thiếu required
+        # field (db.parse_frontmatter — cùng parser frontmatter với lint).
+        fm = db.parse_frontmatter(txt)
+        for kind_name, kspec in (pack.get("kinds") or {}).items():
+            if not isinstance(kspec, dict):
+                continue
+            kpath = str(kspec.get("path") or "").strip("/")
+            if not kpath or f"/{kpath}/" not in f"/{path}":
+                continue
+            for fname, fspec in (kspec.get("fields") or {}).items():
+                if not (isinstance(fspec, dict) and fspec.get("required")):
+                    continue
+                val = fm.get(fname)
+                if (val is None
+                        or (isinstance(val, str) and not val.strip())
+                        or (isinstance(val, (list, dict)) and not val)):
+                    _add_critical(
+                        f"langpack-field-missing: page thuộc kind {kind_name!r} "
+                        f"thiếu required field {fname!r}"
+                    )
+
+    # claim-without-footnote — quét section ## Claims (cùng ngữ nghĩa section
+    # với graph.extract_links: H2 Claims bật, H2 khác tắt; code fence bỏ qua).
+    skip = _code_skip_ranges(txt)
+    lines = txt.split("\n")
+    in_claims = False
+    for i, line in enumerate(lines):
+        pos = sum(len(ln) + 1 for ln in lines[:i])
+        if any(s <= pos < e for s, e in skip):
+            continue
+        if re.match(r"^## Claims(?:\s|$)", line):
+            in_claims = True
+            continue
+        if in_claims and re.match(r"^##\s", line):
+            in_claims = False
+            continue
+        if in_claims and line.strip().startswith("- ") and "[^" not in line:
+            _add_critical(
+                f"claim-without-footnote (line {i + 1}): bullet trong ## Claims "
+                f"thiếu footnote [^id]"
+            )
+
+    # relation-without-note (advisory) — contrast/contradicts cần context (§8).
+    # Link trong ## Claims đã được graph lấy note từ bullet sở hữu → không flag.
+    for link in links:
+        if link.rel in ("contrast-with", "contradicts") \
+                and not (link.note or "").strip():
+            add(path, f"relation-without-note: rel {link.rel!r} → {link.dst!r} "
+                      f"không có note (advisory)")
+
+    # inline-rel-vs-alias (advisory) — cùng dst, nhiều định nghĩa rel (§5.2):
+    # plain [[dst]] → rel 'related' + typed [[dst|rel:X]] → 2 rel khác nhau.
+    rels_by_dst: dict[str, set[str]] = {}
+    for link in links:
+        rels_by_dst.setdefault(link.dst, set()).add(link.rel)
+    for dst in sorted(rels_by_dst):
+        rels = rels_by_dst[dst]
+        if len(rels) > 1:
+            add(path, f"inline-rel-vs-alias: {dst!r} có nhiều định nghĩa rel "
+                      f"khác nhau: {', '.join(sorted(rels))} (advisory)")
+
+    return critical
+
+
 def _check_pins(WIKI_ROOT: str, add) -> None:
     """Pin `active` trong wiki/pins.yml: concept tồn tại + anchor heading còn đó (orphan → human xử lý)."""
     pins_fp = os.path.join(WIKI_ROOT, "wiki", "pins.yml")
@@ -211,21 +326,30 @@ def _check_pins(WIKI_ROOT: str, add) -> None:
 
 def lint(conn, wiki_root=None) -> dict:
     """Health-check deterministic: orphan, broken link, missing file, frontmatter
-    conformance, timestamp, footnote↔sources, index sync, pins, layout.
+    conformance, timestamp, footnote↔sources, index sync, pins, layout,
+    typed-relation + claims rules (broken target, unknown rel, pack fields,
+    claim provenance — spec §8).
 
     Critical issues (missing_file) indicate DB rows trỏ file không tồn tại —
-    search trả row này nhưng file gone → broken result cho user.
+    search trả row này nhưng file gone → broken result cho user. Relation/claim
+    criticals (spec §8) cũng tính vào critical_count — không auto-fix.
 
     `wiki_root` override cho centralized MCP server (multi-wiki). Nếu None,
     dùng db.WIKI_ROOT module default.
     """
     WIKI_ROOT = wiki_root or db.WIKI_ROOT
     lcfg = get_config(WIKI_ROOT).get("lint", {})
+    # Langpack một lần per run: None khi wiki không bật [langpack] →
+    # _check_relations bỏ qua validate/fields (zero change cho wiki không pack).
+    # Bật mà pack hỏng → load_langpack fail loud (FileNotFoundError/ValueError)
+    # đúng contract của graph — lint không fail-open thầm lặng.
+    pack = graph.load_langpack(WIKI_ROOT)
     today = datetime.now().date()
     pages = db.list_pages(conn)
     linked = set()
     orphan = []
     missing_file = []
+    rel_critical: list[str] = []  # message CRITICAL từ _check_relations
     findings: dict[str, list[str]] = {}  # path → [msgs]
 
     def add(path: str, msg: str) -> None:
@@ -246,6 +370,8 @@ def lint(conn, wiki_root=None) -> dict:
         for m in _check_body_inline_local_refs(p["path"], txt):
             add(p["path"], m)
         _check_wikilinks(p["path"], txt, str(WIKI_ROOT), add, linked)
+        rel_critical.extend(
+            _check_relations(p["path"], txt, str(WIKI_ROOT), add, pack))
         if p["path"] not in ("wiki/index.md", "wiki/log.md"):
             fm_raw, body = _split_frontmatter(txt)
             _check_frontmatter(p["path"], db.parse_frontmatter(txt), body, add, today)
@@ -289,7 +415,9 @@ def lint(conn, wiki_root=None) -> dict:
         "orphans": orphan,
         "missing_file": missing_file,
         "findings": findings,
-        "critical_count": len(missing_file),
+        # CRITICAL = dangling rows (fix-able) + relation/claim criticals theo
+        # spec §8 (không auto-fix). Advisory chỉ nằm trong findings.
+        "critical_count": len(missing_file) + len(rel_critical),
         "note": "Contradiction là report cho human, không materialize thành edge. Semantic checks (mâu thuẫn, stale claim) là việc của review skill.",
     }
 
@@ -399,7 +527,14 @@ if __name__ == "__main__":
             for m in msgs:
                 print(f"    - {m}")
     if result["critical_count"] > 0:
-        print(
-            f"\n{result['critical_count']} critical issue(s) — run `python tools/lint.py --fix` to delete dangling rows"
-        )
+        n_missing = len(result["missing_file"])
+        n_rel = result["critical_count"] - n_missing
+        if n_missing:
+            print(
+                f"\n{n_missing} critical issue(s) — run `python tools/lint.py --fix` to delete dangling rows"
+            )
+        if n_rel:
+            print(
+                f"\n{n_rel} critical relation/claim finding(s) — fix by hand ở findings phía trên (không có auto-fix, spec §8)"
+            )
         sys.exit(1)
