@@ -48,6 +48,9 @@ def main():
             )
         )
     search.index_file(c, rel, title, domain, kind, content, provider=prov)
+    # Typed relations: links đồng bộ sau khi page đã index (rel đã là forward-slash
+    # relative path) — GC trong sync_links tự dọn edge cũ của src này.
+    db.sync_links(c, rel, content)
     print(
         f"indexed {rel} (domain={domain!r}, kind={kind!r}, {len(content)} chars) into {db.DB_PATH}"
     )

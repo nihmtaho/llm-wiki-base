@@ -8,10 +8,11 @@ def _load_graph(tmp_path, monkeypatch):
     base_tools = os.path.join("src", "llm_wiki_base", "base_tools")
     monkeypatch.syspath_prepend(os.path.abspath(base_tools))
     # Purge cả bản package — WIKI_ROOT chốt ở import-time (cùng pattern
-    # tests/test_reserved_index.py).
+    # tests/test_reserved_index.py). "ingest" purge kèm để test Task 3 import
+    # bản sạch với WIKI_ROOT trỏ vào tmp root.
     for mod in [m for m in list(sys.modules) if m in (
             "graph", "db", "search", "chunking", "config_file", "embed", "paths",
-            "llm_wiki_base.paths", "llm_wiki_base.config_file")]:
+            "llm_wiki_base.paths", "llm_wiki_base.config_file", "ingest")]:
         del sys.modules[mod]
     import graph
     return graph
@@ -260,3 +261,60 @@ def test_links_table_in_init_db(tmp_path, monkeypatch):
     ).fetchone()
     assert row is not None
     assert row["name"] == "links"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Task 3: ingest CLI syncs links (ingest.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_ingest_cli_syncs_links(tmp_path, monkeypatch, capsys):
+    """ingest.py <page> để lại edge trong bảng links (WIKI_ROOT trỏ vào tmp)."""
+    _load_graph(tmp_path, monkeypatch)  # env + purge (kèm "ingest") trước import
+    # Vector tắt trong tmp config → không embedding (deterministic, offline).
+    (tmp_path / ".llm-wiki-base.toml").write_text(
+        "[retrieval]\nvector = false\n", encoding="utf-8"
+    )
+    # Page thật với frontmatter relation (typed relation — Task 1/2 format).
+    page = tmp_path / "wiki" / "languages" / "grammar-point" / "ba.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text(
+        "---\n"
+        "title: ba\n"
+        "relations:\n"
+        "  - rel: contrast-with\n"
+        "    target: wiki/languages/grammar-point/xu.md\n"
+        '    note: "điều kiện 〜たら"\n'
+        "    source: s1\n"
+        "---\n"
+        "\n"
+        "# ba\n",
+        encoding="utf-8",
+    )
+    import ingest
+
+    monkeypatch.setattr(sys, "argv", ["ingest.py", str(page)])
+    ingest.main()
+    assert "indexed" in capsys.readouterr().out  # đường happy path, không skip
+
+    # Cùng DB mà ingest vừa ghi (db.DB_PATH derive từ WIKI_ROOT=tmp).
+    import db
+    conn = db.get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT src, rel, dst, note, src_footnote, origin FROM links"
+        ).fetchall()
+        page_row = conn.execute(
+            "SELECT path FROM pages WHERE path = ?", ("wiki/languages/grammar-point/ba.md",)
+        ).fetchone()
+    finally:
+        conn.close()
+    assert page_row is not None  # page thực sự được index
+    assert len(rows) == 1  # sync_links chạy sau index_file
+    row = rows[0]
+    assert row["src"] == "wiki/languages/grammar-point/ba.md"
+    assert row["rel"] == "contrast-with"
+    assert row["dst"] == "wiki/languages/grammar-point/xu.md"
+    assert row["note"] == "điều kiện 〜たら"
+    assert row["src_footnote"] == "s1"
+    assert row["origin"] == "frontmatter"

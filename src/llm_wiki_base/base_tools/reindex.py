@@ -42,7 +42,7 @@ if _GLOBAL_RAG not in sys.path:
 import index as rag_index  # noqa: E402
 
 INDEX_META_FILE = os.path.join(str(WIKI_DIR), ".index_meta.json")
-SCHEMA_VERSION = 3  # 3: thêm chunks_fts (BM25 chunk-level) — wiki cũ cần reindex --full
+SCHEMA_VERSION = 4  # 4: links table (typed relations) — wiki cũ cần reindex --full
 
 
 def _current_settings() -> dict:
@@ -176,9 +176,17 @@ def main():
         return
 
     prov = EmbedProvider(model=current["embed_model"]) if current["vector"] else None
+    if args.full:
+        # --full: wipe links trước — sync_links per-file dựng lại edge của mọi
+        # file còn lại, edge của file đã biến mất không sống sót.
+        c.execute("DELETE FROM links")
     n = 0
     for rel, fp in to_index:
         search.index_file_at(c, fp, prov)
+        # index_file_at tự đọc file nhưng không trả content — đọc lại ở đây
+        # (chỉ file đổi/mới, --full = toàn bộ) để sync links cùng giá trị.
+        with open(fp, encoding="utf-8") as f:
+            db.sync_links(c, rel, f.read())
         n += 1
     for p in stale:
         # db.delete_page (không phải raw DELETE FROM pages) để dọn cả pages_fts
