@@ -6,6 +6,58 @@ Versioning follows [SemVer 2.0.0](https://semver.org/); tags are `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-09
+
+Knowledge linking layer: pages now carry machine-checkable typed relations and
+atomic provenance-tracked claims, extracted deterministically into a new
+`links` table (existing wikis: run `llm-wiki-base reindex --full` once after
+upgrading).
+
+### Added
+
+- Frontmatter `relations:` block and inline `[[<path>|rel:<type>]]` /
+  `[[<path>|rel:<type>|<note>]` declare typed edges (`contrast-with`,
+  `example-of`, `covered-in`, ...); plain wikilinks keep working and produce
+  `related` edges, so the existing link graph carries over unchanged. The
+  reserved `rel:` alias prefix is the only new syntax.
+- `## Claims` convention: one bullet = one atomic claim with a `[^id]`
+  footnote into `sources:`; claim-vs-claim links via `#claims` anchors with
+  `rel: contradicts`. Contradictions always route to `wiki/alerts/` — never
+  auto-resolved.
+- Opt-in language packs via `[langpack]` in `.llm-wiki-base.toml`
+  (`enabled`, `pack`). The shipped `japanese` pack adds `grammar-point/` and
+  `vocab/` kinds with required fields (`pattern`, `meaning`, `reading`,
+  `jlpt`, `register`) and a relation vocabulary; pack-less wikis see zero
+  behavior change.
+- `llm-wiki-base lint` gains 8 rules: `broken-relation-target`,
+  `unknown-rel-type`, `relation-target-kind`, `langpack-field-missing`,
+  `claim-without-footnote`, `langpack-config-error` (CRITICAL) and
+  `relation-without-note`, `inline-rel-vs-alias` (advisory). None are
+  auto-fixable.
+- Ingest skill step `2.5 SYNTHESIS PASS`: `wiki_search` before authoring —
+  an existing page on the same grammar/vocabulary is updated in place (new
+  claim + footnote, `covered-in` edge) instead of forked per
+  textbook+lesson.
+- Docs: `docs/relations.md` (user guide with a before/after worked example),
+  `docs/langpacks.md` (pack authoring), `docs/migration-relations.md`
+  (per-wiki upgrade path).
+
+### Changed
+
+- BREAKING: `SCHEMA_VERSION` 3 → 4 — the new `links` table is rebuilt on
+  `llm-wiki-base reindex --full`, which existing wikis must run once after
+  upgrading (see `docs/migration-relations.md`).
+- `dst` values in `links` are normalized to the `.md` form (URLs and
+  `#anchors` exempt), dedup priority is frontmatter > inline > wikilink.
+- `watch` and page deletion keep `links` in sync (no stale/orphan edges);
+  `reindex --full` remains the reconcile path.
+
+### Fixed
+
+- `PyYAML` is now a declared dependency (was transitive-only via
+  `fastembed`); the `japanese` langpack templates are deployed to the global
+  base on install/upgrade.
+
 ## [0.1.6] - 2026-10-06
 
 ### Added
@@ -174,7 +226,8 @@ First release.
   `docs/` (`cli`, `retrieval-eval`, `mcp`, `upgrading`, `translation`),
   animated `docs/wiki-flow.html`.
 
-[Unreleased]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.3...v0.1.4
