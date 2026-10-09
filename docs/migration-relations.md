@@ -17,10 +17,12 @@ touches a page (see [relations.md](relations.md)).
 ## Steps
 
 ```bash
-# 1. Update the core (pick your install — see README) + sync the global runtime
-uv tool install --force "git+https://github.com/nihmtaho/llm-wiki-base.git"  # uv tool
-#   local clone instead: git pull && pip install -e .[dev]
-llm-wiki-base setup tools
+# 1. Update the core — canonical route: a LOCAL git checkout installed editable
+#    (README "install from a local clone"); step 2's upgrade requires it:
+#      existing clone:  git pull && pip install -e .[dev]
+#      fresh clone:     git clone https://github.com/nihmtaho/llm-wiki-base.git
+#                       && cd llm-wiki-base && pip install -e .[dev]
+llm-wiki-base setup tools                # sync the global runtime
 
 # 2. Re-sync the wiki's managed files from the new core (backups first)
 llm-wiki-base upgrade --dry-run        # preview: which files change
@@ -44,6 +46,15 @@ Notes:
   check `llm-wiki-base wiki list`, register `llm-wiki-base wiki add <name> <path>`.
   Safety rules (running core checked out at the target tag, rollback) live in
   [upgrading.md](upgrading.md).
+- **Step 2 precondition — a core checkout.** `upgrade` locates the core by
+  walking up from the *running* package's `__file__` to the nearest `.git`
+  (`find_core()`); outside a checkout it aborts with
+  `No core checkout found (.git)` (exit 2). A pure site-packages install — e.g.
+  `uv tool install --force "git+https://github.com/nihmtaho/llm-wiki-base.git"` —
+  can run the CLI but **cannot** run `upgrade`; keep such an install only as a CLI
+  runner — step 2 needs step 1's editable-checkout install. (Apply also refuses
+  until the checkout is at the target tag and prints the `git fetch && git
+  checkout` instructions — see [upgrading.md](upgrading.md).)
 - `llm-wiki-base init personal|project` only **creates** a wiki: it installs
   skills into a fresh dir but never overwrites an existing `AGENTS.md` /
   `_schema.md` — it is not a sync path for an existing wiki.
