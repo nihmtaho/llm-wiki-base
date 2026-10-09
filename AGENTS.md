@@ -63,6 +63,7 @@ CLI/Python is deterministic.
 2. Read it, **auto-detect domain**, create `wiki/<domain>/` if new.
 3. Write summary → `wiki/<domain>/source/<slug>.md` (`domain`, `kind: source`, `sources`, `updated`, `status: active`, `generated`). No URL → `sources: []` (never a local path — it drifts). **Never set `verified`.** Prefer list-of-dicts + `[^id]` citations.
 4. Create/update related entity/concept pages in the same domain; every new page needs ≥1 outbound wikilink. Respect `active` pins; pin conflicts → `wiki/alerts/`, never a silent revert.
+   - **Synthesis pass first** (ingest skill, step 2.5 SYNTHESIS PASS): `wiki_search` the same topic/pattern BEFORE creating any new page — existing page found → update it in place (new claim + footnote to the new source, a `relations` edge such as `covered-in` → the new source page, `log.md: "synthesized into <page>"`); contradicting source → keep the old claim, add `rel: contradicts`, open `wiki/alerts/`.
 5. Translation enabled (`[translate]` in `.llm-wiki-base.toml`) → invoke `llm-wiki-base-translate` per new page (never translate inline).
 6. Update `wiki/<domain>/index.md` (new domain → also add a row to `wiki/index.md`). Page count = `find wiki/<domain> -name "*.md" | wc -l` — count, don't guess.
 7. Prepend to `wiki/log.md`: `## [YYYY-MM-DD HH:MM:SS] ingest | <title>` + bullets for actions actually taken. Date = the source page's `updated`.
@@ -100,4 +101,4 @@ One mirror tree per target lang: `wiki-<lang>/<domain>/<kind>/<slug>.md` (siblin
 Read/search (`wiki_search`, `semantic_search`, `wiki_read`, `wiki_list`, `list_raw_source`, `read_raw_source`) · intake `wiki_submit` → `raw/inbox/` · proposals `wiki_propose_edit` → `.proposals/`. Write tools REQUIRE `wiki=`. **MCP never ingests** — page writing is maintainer-only (CLI / `llm-wiki-base-ingest` skill).
 
 ## Tooling
-`scripts/extract_{url,pdf,youtube}.py` → `raw/inbox/` · `tools/{paths,chunking,search,watch,ingest,reindex,eval}.py` · `rag/index.py` (vector chunks). Chunking is shared between BM25-chunk and vector-chunk — boundaries must match for RRF to mean anything.
+`scripts/extract_{url,pdf,youtube}.py` → `raw/inbox/` · `tools/{paths,chunking,search,watch,ingest,reindex,eval,graph}.py` · `rag/index.py` (vector chunks). Chunking is shared between BM25-chunk and vector-chunk — boundaries must match for RRF to mean anything.
