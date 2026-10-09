@@ -72,3 +72,7 @@ max_indent_depth = 3
 k = 8                       # cutoff mặc định của `llm-wiki-base eval` (P@k / R@k / MRR)
 golden = "eval/golden.toml" # bộ query vàng — COMMIT file này vào wiki repo
 results = "eval/results.json"  # lịch sử đo — gitignored, không commit
+
+# [langpack]
+# enabled = true
+# pack = "japanese"   # kinds grammar-point/vocab + relation vocabulary — xem docs/langpacks.md

@@ -349,3 +349,103 @@ def test_delete_page_removes_its_links(tmp_path, monkeypatch):
     assert len(other) == 1
     assert other[0]["src"] == "wiki/other.md"
     assert other[0]["dst"] == "wiki/keep.md"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Task 4: language pack loading + pack-aware validation (opt-in [langpack])
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _japanese_pack(tmp_path, monkeypatch):
+    """Wiki tmp bật `[langpack] japanese` → pack dict THẬT từ templates/."""
+    graph = _load_graph(tmp_path, monkeypatch)
+    (tmp_path / ".llm-wiki-base.toml").write_text(
+        '[langpack]\nenabled = true\npack = "japanese"\n', encoding="utf-8"
+    )
+    pack = graph.load_langpack(str(tmp_path))
+    assert pack is not None
+    return graph, pack
+
+
+def test_load_langpack_disabled_returns_none(tmp_path, monkeypatch):
+    """TOML thiếu [langpack] / enabled=false / pack rỗng → None (zero change)."""
+    graph = _load_graph(tmp_path, monkeypatch)
+    # Không có toml → None.
+    assert graph.load_langpack(str(tmp_path)) is None
+    # Có toml nhưng thiếu [langpack] → None.
+    (tmp_path / ".llm-wiki-base.toml").write_text(
+        '[wiki]\nprofile = "personal"\n', encoding="utf-8"
+    )
+    assert graph.load_langpack(str(tmp_path)) is None
+    # enabled=false → None.
+    (tmp_path / ".llm-wiki-base.toml").write_text(
+        '[langpack]\nenabled = false\npack = "japanese"\n', encoding="utf-8"
+    )
+    assert graph.load_langpack(str(tmp_path)) is None
+    # enabled=true nhưng pack rỗng → None.
+    (tmp_path / ".llm-wiki-base.toml").write_text(
+        '[langpack]\nenabled = true\npack = ""\n', encoding="utf-8"
+    )
+    assert graph.load_langpack(str(tmp_path)) is None
+
+
+def test_load_langpack_japanese(tmp_path, monkeypatch):
+    """Pack japanese load được kinds + relations từ templates/langpacks/."""
+    graph, pack = _japanese_pack(tmp_path, monkeypatch)
+    assert pack["name"] == "japanese"
+    assert "grammar-point" in pack["kinds"]
+    assert "vocab" in pack["kinds"]
+    assert "contrast-with" in pack["relations"]
+    assert "covered-in" in pack["relations"]
+    # Ràng buộc targets của covered-in parse đúng từ relations.yml.
+    assert pack["relations"]["covered-in"] == {"targets": ["source"]}
+
+
+def test_validate_unknown_rel(tmp_path, monkeypatch):
+    """Rel lạ → unknown-rel-type; DEFAULT_REL 'related' luôn được phép."""
+    graph, pack = _japanese_pack(tmp_path, monkeypatch)
+    links = [
+        graph.Link(rel="vague-rel", dst="wiki/x.md", note=None,
+                   src_footnote=None, origin="wikilink"),
+        graph.Link(rel="related", dst="wiki/y.md", note=None,
+                   src_footnote=None, origin="wikilink"),
+    ]
+    errors = graph.validate_links(links, pack)
+    assert len(errors) == 1  # chỉ rel lạ; related không lỗi
+    assert "unknown-rel-type" in errors[0]
+    assert "vague-rel" in errors[0]
+    # related LUÔN hợp lệ, kể cả khi pack không khai entry riêng.
+    bare = {"name": "bare", "kinds": {}, "relations": {}}
+    assert graph.validate_links(
+        [graph.Link(rel="related", dst="wiki/y.md", note=None,
+                    src_footnote=None, origin="wikilink")],
+        bare,
+    ) == []
+
+
+def test_validate_targets_constraint(tmp_path, monkeypatch):
+    """covered-in (targets=[source]) chỉ nhận dst là .../source/... path."""
+    graph, pack = _japanese_pack(tmp_path, monkeypatch)
+    bad = graph.Link(rel="covered-in", dst="wiki/languages/concept/x.md",
+                     note=None, src_footnote=None, origin="frontmatter")
+    good = graph.Link(rel="covered-in", dst="wiki/languages/source/x.md",
+                      note=None, src_footnote=None, origin="frontmatter")
+    errors = graph.validate_links([bad], pack)
+    assert len(errors) == 1
+    assert "covered-in" in errors[0]
+    assert graph.validate_links([good], pack) == []
+
+
+def test_validate_no_pack_passthrough(tmp_path, monkeypatch):
+    """pack=None → [] luôn: wiki không langpack không bị validate (regression)."""
+    graph = _load_graph(tmp_path, monkeypatch)
+    links = [
+        graph.Link(rel="vague-rel", dst="wiki/x.md", note=None,
+                   src_footnote=None, origin="wikilink"),
+        graph.Link(rel="covered-in", dst="wiki/languages/concept/x.md",
+                   note=None, src_footnote=None, origin="frontmatter"),
+        graph.Link(rel="contradicts",
+                   dst="wiki/languages/grammar-point/ba.md#claims",
+                   note="claim.", src_footnote=None, origin="inline"),
+    ]
+    assert graph.validate_links(links, None) == []

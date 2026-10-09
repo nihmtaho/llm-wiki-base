@@ -1,0 +1,7 @@
+relations:
+  contrast-with: {}
+  example-of: {}
+  synonym-of: {}
+  derived-from: {}
+  covered-in: {targets: [source]}     # only kind source
+  related: {default: true}            # default for plain wikilinks
