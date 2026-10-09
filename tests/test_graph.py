@@ -318,3 +318,34 @@ def test_ingest_cli_syncs_links(tmp_path, monkeypatch, capsys):
     assert row["note"] == "điều kiện 〜たら"
     assert row["src_footnote"] == "s1"
     assert row["origin"] == "frontmatter"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Task 3 fix: delete_page dọn cả links rows của src (reindex = reconcile step)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_delete_page_removes_its_links(tmp_path, monkeypatch):
+    """delete_page xoá edge của src — không để orphan links rows khi page biến mất."""
+    _load_graph(tmp_path, monkeypatch)
+    import db
+    conn = db.get_conn(":memory:")
+    db.init_db(conn)
+    # Page "a" được index (có row pages) + có edge; page khác phải sống sót.
+    db.upsert_page(conn, "wiki/a.md", "a", "t", "concept", "# a\n", 0.0)
+    db.sync_links(conn, "wiki/a.md", "# a\n\n[[wiki/b.md]]\n")
+    db.sync_links(conn, "wiki/other.md", "[[wiki/keep.md]]\n")
+    # Orphan case: links tồn tại nhưng row pages đã không còn từ lần chạy trước.
+    db.sync_links(conn, "wiki/ghost.md", "[[wiki/gone.md]]\n")
+
+    db.delete_page(conn, "wiki/a.md")
+    db.delete_page(conn, "wiki/ghost.md")
+
+    assert db.get_links(conn, "wiki/a.md") == []
+    # Kể cả khi row pages đã biến mất, links của src vẫn được dọn.
+    assert db.get_links(conn, "wiki/ghost.md") == []
+    # Src khác không bị đụng tới.
+    other = db.get_links(conn, "wiki/other.md")
+    assert len(other) == 1
+    assert other[0]["src"] == "wiki/other.md"
+    assert other[0]["dst"] == "wiki/keep.md"

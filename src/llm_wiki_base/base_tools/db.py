@@ -335,9 +335,14 @@ def upsert_page(
 
 
 def delete_page(conn, path):
+    # Links là derived theo src path — page biến mất thì edge của nó không được
+    # sống sót (reindex là bước reconcile). Đặt TRƯỚC early-return: links có thể
+    # còn sót dù row pages đã không còn (orphan từ lần chạy trước).
+    conn.execute("DELETE FROM links WHERE src = ?", (path,))
     cur = conn.execute("SELECT id FROM pages WHERE path = ?", (path,))
     row = cur.fetchone()
     if not row:
+        conn.commit()
         return
     conn.execute("DELETE FROM pages_fts WHERE rowid = ?", (row["id"],))
     conn.execute("DELETE FROM chunks_fts WHERE page_id = ?", (row["id"],))
