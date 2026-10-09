@@ -126,6 +126,58 @@ wiki/<domain>/<kind>/<slug>.md   ⇄   wiki-<lang>/<domain>/<kind>/<slug>.md
 - Custom text → alias: `[[path|Custom Text]]`.
 - Never link `[[raw/inbox/...]]` in body (staging); `[[raw/...]]` outside inbox is allowed.
 
+## Relations & Claims
+
+Typed, machine-checkable relations + atomic claims. Extracted deterministically into the
+`links` table by ingest/reindex (no LLM in the extraction path). Full user guide:
+`docs/relations.md`. Old pages stay valid — no backfill; add relations as consolidate touches them.
+
+**Frontmatter `relations:` (primary source):**
+
+```yaml
+relations:
+  - rel: contrast-with
+    target: wiki/languages/grammar-point/ba.md
+    note: "〜たら nhấn hậu quả tình cờ"
+    source: s1        # optional — footnote id in sources:
+```
+
+**Inline typed wikilinks (supplementary):**
+
+```
+[[wiki/languages/grammar-point/ba.md|rel:contrast-with]]
+[[wiki/languages/grammar-point/ba.md|rel:example-of|Ví dụ của 〜たら]]
+```
+
+- `rel:` is a **reserved alias prefix**. Lint `inline-rel-vs-alias` warns on conflicting
+  definitions (same target, different rel).
+- Duplicate (src, target, rel) across frontmatter + inline → deduped by primary key;
+  frontmatter `note` wins on conflict.
+- **Default edges**: plain `[[path]]` / `[[path|alias]]` → edge `rel: related`
+  (orphan detection and graph continuity unchanged).
+
+**`## Claims` section (atomic facts):**
+
+```markdown
+## Claims
+
+- 〜たら dùng để chỉ việc "sau khi X xảy thì Y" với sắc thái tình cờ, không chủ đích.[^s1]
+- 〜たら có thể dùng cho điều kiện tương lai "nếu X thì Y", thay thế 〜ば trong nói.[^s1]
+- Shinkanzen N3 bài 6 xếp 〜たら vào nhóm điều kiện, không nhóm "sau khi".[^s2]
+```
+
+- One bullet = one claim atom = exactly one sentence, ≥1 footnote `[^id]` → `sources:` dict.
+  No multi-idea bullets. Claims are prose content, **not** a new page kind.
+- Footnotes keep verbatim-quote semantics; lint `footnote-sources-match` unchanged — claims
+  *organize* the citation system, they don't replace it.
+- Claim-vs-claim links use inline `#claims` anchors:
+  `- 〜ば nhấn điều kiện logic.[^s2] [[wiki/languages/grammar-point/ba.md#claims|rel:contradicts]]`
+  (the parser scans the target page's `## Claims` section; edge `note` carries the source
+  claim text).
+- Cross-source ingest: a new raw that *agrees* with an existing claim → add a new footnote to
+  that claim (more provenance). A new raw that *contradicts* → **never edit the old claim**;
+  add `rel: contradicts` + open `wiki/alerts/` — contradictions stay human-resolved.
+
 ## Trust tier & verify (personal + project)
 
 - **unverified** — no `verified` (default for AI-written; `generated` records who/when).
