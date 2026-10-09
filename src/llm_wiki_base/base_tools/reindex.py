@@ -12,7 +12,9 @@ Chế độ:
 Metadata drift: <WIKI_DIR>/.index_meta.json ghi embed_model/vector/chunk_tokens
 của lần reindex cuối — lệch config hiện tại → warning "chạy reindex --full".
 
-SCHEMA_VERSION 3: thêm bảng `chunks_fts` (BM25 chunk-level). Vì incremental bỏ
+SCHEMA_VERSION 3: thêm bảng `chunks_fts` (BM25 chunk-level). SCHEMA_VERSION 4:
+thêm bảng `links` (typed relations — DELETE-FROM-links rồi sync per-file ở
+`--full`). Vì incremental bỏ
 qua page có content-hash không đổi, wiki cũ PHẢI chạy `reindex --full` một lần
 thì kênh bm25_chunk mới có dữ liệu — bump version để drift warning bắt buộc
 bước đó hiện ra ngay.
@@ -42,7 +44,7 @@ if _GLOBAL_RAG not in sys.path:
 import index as rag_index  # noqa: E402
 
 INDEX_META_FILE = os.path.join(str(WIKI_DIR), ".index_meta.json")
-SCHEMA_VERSION = 3  # 3: thêm chunks_fts (BM25 chunk-level) — wiki cũ cần reindex --full
+SCHEMA_VERSION = 4  # 4: links table (typed relations) — wiki cũ cần reindex --full
 
 
 def _current_settings() -> dict:
@@ -85,7 +87,8 @@ def _collect_files() -> list[tuple[str, str]]:
             if any(s in SKIP_DIRS for s in parts) or parts[-1].startswith("."):
                 continue
             if TRANSLATED_SUFFIX_RE.search(os.path.basename(fp)):
-                # bản dịch (.lang.md) — KHÔNG index
+                # bản dịch legacy (.lang.md) — KHÔNG index. Cây mới wiki-<lang>/
+                # nằm ngoài glob WIKI_DIR/RAW_DIR nên tự động không lọt vào đây.
                 continue
             if rel.replace(os.sep, "/").startswith("wiki/") and is_reserved(rel):
                 # index.md/log.md là hạ tầng, không phải concept (song song sync_chunks)
@@ -175,9 +178,17 @@ def main():
         return
 
     prov = EmbedProvider(model=current["embed_model"]) if current["vector"] else None
+    if args.full:
+        # --full: wipe links trước — sync_links per-file dựng lại edge của mọi
+        # file còn lại, edge của file đã biến mất không sống sót.
+        c.execute("DELETE FROM links")
     n = 0
     for rel, fp in to_index:
         search.index_file_at(c, fp, prov)
+        # index_file_at tự đọc file nhưng không trả content — đọc lại ở đây
+        # (chỉ file đổi/mới, --full = toàn bộ) để sync links cùng giá trị.
+        with open(fp, encoding="utf-8") as f:
+            db.sync_links(c, rel, f.read())
         n += 1
     for p in stale:
         # db.delete_page (không phải raw DELETE FROM pages) để dọn cả pages_fts

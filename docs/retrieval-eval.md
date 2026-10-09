@@ -14,7 +14,7 @@ Both chunk channels **share** `tools/chunking.py`, hence identical boundaries â€
 if they differed, RRF between them would be meaningless. Each hit carries
 `matched_by` + `rank` + `snippet` (a chunk's text: enough to **pick** a page,
 not to **answer**). **Never chunked:** `index.md`/`log.md` (reserved),
-translations `*.lang.md`, frontmatter, verbatim-quote footnotes.
+`wiki-<lang>/` translation trees (legacy `*.lang.md`), frontmatter, verbatim-quote footnotes.
 
 **Rerank at the skill layer** (`[retrieval].rerank = "llm"`): the skill requests
 a wide pool (`2 Ã— top_n_final`), scores candidates by title/snippet/`matched_by`

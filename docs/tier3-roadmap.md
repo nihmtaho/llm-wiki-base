@@ -29,7 +29,7 @@ chi tiết trong `docs/session/session-tier3-retrieval-2026-09-02.md`. Phần c�
 - `tools/chunking.py` — chunker **dùng chung** với `rag/index.py` → 2 kênh cùng ranh giới.
 - Sync trong `search.index_file` → ingest/reindex/watch tự động; `SCHEMA_VERSION` 2→3 ép
   `reindex --full` một lần cho wiki cũ.
-- Không chunk: reserved `index.md`/`log.md`, `*.lang.md`, frontmatter, footnote verbatim.
+- Không chunk: reserved `index.md`/`log.md`, cây dịch `wiki-<lang>/` (legacy `*.lang.md`), frontmatter, footnote verbatim.
 
 ### 3b. Limitation còn lại của gói retrieval (nếu cần, làm sau)
 - `wiki/log.md` **vẫn là một page** → vẫn xuất hiện trong `bm25_page` (chỉ phần chunk bị loại).

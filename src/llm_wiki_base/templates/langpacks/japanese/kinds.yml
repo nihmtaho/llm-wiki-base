@@ -1,0 +1,18 @@
+kinds:
+  grammar-point:
+    path: grammar-point/
+    fields:
+      pattern: {required: true}      # "〜てから", "〜たら"
+      meaning: {required: true}      # nghĩa tiếng Việt
+      reading: {optional: true}
+      register: {optional: true, enum: [casual, polite, formal, written]}
+      jlpt: {optional: true, enum: [N5, N4, N3, N2, N1]}
+      tags: {optional: true}
+  vocab:
+    path: vocab/
+    fields:
+      word: {required: true}
+      reading: {required: true}
+      meaning: {required: true}
+      jlpt: {optional: true}
+      register: {optional: true}

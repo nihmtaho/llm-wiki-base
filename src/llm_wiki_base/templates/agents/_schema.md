@@ -9,6 +9,7 @@ The wiki is a cumulatively-built artifact maintained by an LLM. Compile once, ke
 - `raw/inbox/` — staging. New files awaiting ingest. Mutable while humans/AIs drop files in.
 - `raw/` — **local cache** post-ingest (URL and non-URL alike). **Deletable at will** — provenance lives in the page's `sources:` field. Gitignored by default.
 - `wiki/` — markdown generated/maintained by the LLM. The LLM owns this layer. **This is the real knowledge** (curated, cross-linked, persistent).
+- `wiki-<lang>/` — one parallel tree per translation target (e.g. `wiki-vi/`), mirroring `wiki/` path-for-path. Derived from `wiki/`, never indexed. See [Translations](#translations).
 
 Move rules:
 - Sources with OR without a URL → all move from `raw/inbox/` to `raw/`. Provenance differs only in the `sources:` field (URL = strong, `[]` = weak).
@@ -98,12 +99,84 @@ sources: []
 
 **Backwards-compat:** old pages with only `category: <folder>` (no `domain`/`kind`) → inferred automatically from path.
 
+## Translations
+
+Optional, off by default (`[translate]` in `.llm-wiki-base.toml`). One canonical tree `wiki/`
+(source language, set by `[wiki].lang`) + one mirror tree per target lang, named `wiki-<lang>/`:
+
+```
+wiki/<domain>/<kind>/<slug>.md   ⇄   wiki-<lang>/<domain>/<kind>/<slug>.md
+```
+
+- **Placement**: siblings at the wiki root — a translation is NEVER written inline as
+  `<slug>.<lang>.md` inside `wiki/` (legacy layout; migrated by `llm-wiki-base translate migrate`).
+- **Content**: same frontmatter keys as the source (`title`, `domain`, `kind`, `sources`,
+  `updated`, `status`); body an exact translation (code/URLs/terms/`[[wikilinks]]` preserved,
+  Mermaid blocks verbatim). `wiki/log.md` is never translated.
+- **Indexing**: `wiki-<lang>/` is outside the index roots (`wiki/` + `raw/`) → BM25/RAG never
+  see it. Legacy `*.<lang>.md` files are still skipped by the CLI.
+- **Tooling**: `llm-wiki-base translate enable|disable|status|check|migrate` — CLI is
+  deterministic; the actual translation is the `llm-wiki-base-translate` skill (AI tool's LLM).
+  `check` verifies the mirror (missing/orphan/mismatched pages); `migrate` moves legacy files.
+
 ## Wikilinks
 
 - **Full path only**: `[[wiki/<domain>/<kind>/<slug>]]`.
 - **No markdown wrapping**: `[text]([[path]])` breaks Obsidian rendering.
 - Custom text → alias: `[[path|Custom Text]]`.
 - Never link `[[raw/inbox/...]]` in body (staging); `[[raw/...]]` outside inbox is allowed.
+
+## Relations & Claims
+
+Typed, machine-checkable relations + atomic claims. Extracted deterministically into the
+`links` table by ingest/reindex (no LLM in the extraction path). Full user guide:
+llm-wiki-base repo → `docs/relations.md`. Old pages stay valid — no backfill; add relations as consolidate touches them.
+
+**Frontmatter `relations:` (primary source):**
+
+```yaml
+relations:
+  - rel: contrast-with
+    target: wiki/languages/grammar-point/ba.md
+    note: "〜たら nhấn hậu quả tình cờ"
+    source: s1        # optional — footnote id in sources:
+```
+
+**Inline typed wikilinks (supplementary):**
+
+```
+[[wiki/languages/grammar-point/ba.md|rel:contrast-with]]
+[[wiki/languages/grammar-point/ba.md|rel:example-of|Ví dụ của 〜たら]]
+```
+
+- `rel:` is a **reserved alias prefix**. Lint `inline-rel-vs-alias` warns on conflicting
+  definitions (same target, different rel).
+- Duplicate (src, target, rel) across frontmatter + inline → deduped by primary key;
+  frontmatter `note` wins on conflict.
+- **Default edges**: plain `[[path]]` / `[[path|alias]]` → edge `rel: related`
+  (orphan detection and graph continuity unchanged).
+
+**`## Claims` section (atomic facts):**
+
+```markdown
+## Claims
+
+- 〜たら dùng để chỉ việc "sau khi X xảy thì Y" với sắc thái tình cờ, không chủ đích.[^s1]
+- 〜たら có thể dùng cho điều kiện tương lai "nếu X thì Y", thay thế 〜ば trong nói.[^s1]
+- Shinkanzen N3 bài 6 xếp 〜たら vào nhóm điều kiện, không nhóm "sau khi".[^s2]
+```
+
+- One bullet = one claim atom = exactly one sentence, ≥1 footnote `[^id]` → `sources:` dict.
+  No multi-idea bullets. Claims are prose content, **not** a new page kind.
+- Footnotes keep verbatim-quote semantics; lint `footnote-sources-match` unchanged — claims
+  *organize* the citation system, they don't replace it.
+- Claim-vs-claim links use inline `#claims` anchors:
+  `- 〜ば nhấn điều kiện logic.[^s2] [[wiki/languages/grammar-point/ba.md#claims|rel:contradicts]]`
+  (the parser scans the target page's `## Claims` section; edge `note` carries the source
+  claim text).
+- Cross-source ingest: a new raw that *agrees* with an existing claim → add a new footnote to
+  that claim (more provenance). A new raw that *contradicts* → **never edit the old claim**;
+  add `rel: contradicts` + open `wiki/alerts/` — contradictions stay human-resolved.
 
 ## Trust tier & verify (personal + project)
 
@@ -167,7 +240,7 @@ throwable, rebuildable — NEVER commit.
   Concept path + `sources[].id` — trust tier preserved, never quote raw chunks.
 - Chunk = semantic section (by heading, heading kept as context), excluding
   frontmatter + verbatim footnotes. Reserved `index.md`/`log.md` and
-  `*.lang.md` translations are **never** chunked.
+  `wiki-<lang>/` translation trees (legacy `*.lang.md`) are **never** chunked.
 - **Deterministic fallback**: missing model/embeddings/chunks → structural + BM25.
   "No model" ≠ "broken". Eval prints `[ERROR] channel disabled by error` when a channel
   dies of a real error (vs "disabled by config").

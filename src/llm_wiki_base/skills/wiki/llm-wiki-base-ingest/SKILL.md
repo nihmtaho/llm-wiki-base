@@ -26,7 +26,7 @@ Read `[wiki].profile` in `<wiki_root>/.llm-wiki-base.toml`:
 | | `personal` | `codebase` |
 |---|---|---|
 | wiki root | standalone wiki folder | `<project>/<wiki-dir>/` (e.g. `project-wiki/`) |
-| touches per source | **10–15 pages** (wiki grows by topic) | **5–10 pages** (more focused) |
+| touches per source | **10–15 pages** (wiki grows by topic; **synthesis-in-place** — updating an existing page instead of creating a new one — does NOT count against the quota) | **5–10 pages** (more focused; synthesis-in-place updates do NOT count against the quota) |
 | typical domains | free-form by topic | `tech-stack`, `architecture`, `conventions`, `dependencies`, `deployment`, `testing`, `security`, `api`, `data-model`, `domain/<sub>` |
 | content language | grammar/patterns + vocabulary must enter the wiki, not die in the source page | code paths must be **verified** before writing |
 
@@ -43,6 +43,21 @@ A new source lands in `raw/inbox/` — dropped by a human, produced by `scripts/
    - Ambiguous content / not enough context to settle takeaways → `websearch` the URL or citation in the raw's `source` field before asking the human. **Never guess blind.**
    - If the source content appears already fully covered in the wiki → tell the human and stop; don't create duplicate pages.
 2. **Discuss short takeaways with the human** (default: ingest one source at a time).
+
+```
+2.5. SYNTHESIS PASS — trước khi viết bất kỳ trang mới nào:
+   a. Với mỗi grammar-point/vocab/concept chính trong raw: wiki_search tìm trang ĐÃ TỒN TẠI
+      về cùng điểm ngữ pháp/từ (dùng pattern làm query, không dùng tên sách).
+   b. Nếu trang đã có → KHÔNG tạo trang mới. Update trang cũ:
+      - Thêm claim mới vào ## Claims kèm footnote nguồn MỚI (tăng provenance).
+      - Thêm relations covered-in → source page của raw mới.
+      - Ghi log.md: "synthesized into <page>".
+   c. Nếu mâu thuẫn với claim cũ → giữ nguyên claim cũ, thêm rel: contradicts
+      trỏ claim mới, mở wiki/alerts/ (không tự resolve).
+   d. Slug rule: grammar-point slug theo pattern (ba-tara.md), TÊN SÁCH + BÀI
+      chỉ sống trong source page + relation covered-in.
+```
+
 3. **Auto-detect domain** (top-level folder under `wiki/`):
    - Read content + URL + title → determine topic. Matching folder exists → use it.
    - None matches → create a new folder per the naming rule (kebab-case, lowercase, ASCII-safe) + empty `wiki/<domain>/index.md` (filled in step 7).
@@ -62,7 +77,7 @@ A new source lands in `raw/inbox/` — dropped by a human, produced by `scripts/
    - Every new page needs at least 1 outbound wikilink.
    - **Mermaid in knowledge pages**: for every diagram classified as **non-special** in step 4, embed it inline in the most relevant concept/entity page (the knowledge file). This is the default — embed unless the diagram is special. See [Non-special path](#non-special-inline-path) below.
    - **[codebase]** kinds: `entity` = library/tool; `concept` = pattern/architecture; `source` = doc summary; `task` = task tracking.
-6. **Auto-translation (if enabled)**: run `llm-wiki-base translate status` first. If `[translate].enabled = true` and `langs` non-empty: call **`llm-wiki-base-translate`** for each new page. `len(langs) > 5` or pages > 20 → warn before calling. `enabled = false` → skip silently. **`.mmd` files are never translated** — skip them.
+6. **Auto-translation (if enabled)**: run `llm-wiki-base translate status` first. If `[translate].enabled = true` and `langs` non-empty: call **`llm-wiki-base-translate`** for each new page — it writes mirror files to `wiki-<lang>/<domain>/<kind>/<slug>.md` (sibling tree of `wiki/`, never inline). `len(langs) > 5` or pages > 20 → warn before calling. `enabled = false` → skip silently. **`.mmd` files are never translated** — skip them.
 7. Update `wiki/<domain>/index.md`. **New domain** → add row to `wiki/index.md`. Include diagram count: if diagrams were created, append `(+N diagrams)` to the domain index row for this source page.
 8. Insert into `wiki/log.md` (reverse-chronological): `## [YYYY-MM-DD HH:MM:SS] ingest | <title>`.
    - Date = `updated` from source page frontmatter. Use **Edit anchored at next entry** — **NEVER rewrite the whole file, NEVER `cat >>`**.

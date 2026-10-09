@@ -14,7 +14,7 @@ Subcommands (canonical):
     review ...       — review AI staging edits: list / show (diff) / apply / discard
     watch            — wrapper: daemon scanning inbox + ingest + reindex
     serve --mcp      — run centralized MCP server (stdio) for AI tools
-    translate        — enable/disable/status/check (TRANSLATING is the skill's job, not CLI)
+    translate        — enable/disable/status/check/migrate (TRANSLATING is the skill's job, not CLI)
     config show      — print effective config (defaults + .llm-wiki-base.toml + env overrides)
     upgrade          — re-sync skills + agent configs of every registered wiki to a new tag
     uninstall        — remove the TOOL (global runtime + per-wiki MCP entries + skills);
@@ -839,8 +839,9 @@ def translate_enable(
     console.print(f"[green]✓[/green] enabled → {', '.join(sorted(set(lang)))}")
     console.print(f"  written to: {p}")
     console.print()
-    console.print("From now on, ingest auto-creates <slug>.<lang>.md for each new page.")
-    console.print("Translations do NOT enter the DB/RAG (skip rule *.lang.md).")
+    console.print("From now on, ingest auto-creates wiki-<lang>/<domain>/<kind>/<slug>.md "
+                  "for each new page (mirror cây wiki/).")
+    console.print("Cây wiki-<lang>/ là sibling của wiki/ → không vào DB/RAG.")
 
 
 @translate_app.command("disable")
@@ -891,7 +892,7 @@ def translate_check(
         help="Wiki root (default: $WIKI_ROOT or cwd).",
     ),
 ) -> None:
-    """Verify every <slug>.md has a matching <slug>.<lang>.md with the same frontmatter keys + heading structure.
+    """Verify `wiki-<lang>/` mirrors `wiki/`: mỗi page có bản dịch cùng frontmatter keys + heading structure.
 
     Needs no LLM — only reads files + compares structure.
 
@@ -901,6 +902,42 @@ def translate_check(
     from llm_wiki_base.translate import run_check
     code = run_check(wiki_root=root, lang=lang)
     raise typer.Exit(code)
+
+
+@translate_app.command("migrate")
+def translate_migrate(
+    lang: list[str] = typer.Option(
+        None, "--lang", "-l",
+        help="Language(s) cần migrate (mặc định: [translate].langs trong config). Repeatable.",
+    ),
+    root: Path = typer.Option(
+        Path(os.environ.get("WIKI_ROOT", ".")), "--root",
+        help="Wiki root (default: $WIKI_ROOT or cwd).",
+    ),
+) -> None:
+    """Move file dịch layout cũ `wiki/**/<slug>.<lang>.md` → cây mới `wiki-<lang>/**/<slug>.md`.
+
+    An toàn: file đích đã tồn tại thì giữ nguyên nguồn, không ghi đè. Không cần LLM.
+
+    Examples:
+        llm-wiki-base translate migrate --lang vi
+    """
+    from llm_wiki_base.config_file import get_translate_config
+    from llm_wiki_base.translate import migrate_translations
+    langs = lang or get_translate_config(root)[1]
+    if not langs:
+        _ui.err_panel("không có lang nào để migrate.",
+                      "llm-wiki-base translate migrate --lang vi")
+        raise typer.Exit(2)
+    total = 0
+    for code in langs:
+        moved = migrate_translations(root, code)
+        total += len(moved)
+        for src, dst in moved:
+            console.print(f"  [green]→[/green] {src} → {dst}")
+        if not moved:
+            console.print(f"  [dim]{code}: không có file legacy.[/dim]")
+    console.print(f"[green]✓[/green] migrated {total} file(s) vào wiki-<lang>/.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

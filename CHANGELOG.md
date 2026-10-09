@@ -6,6 +6,57 @@ Versioning follows [SemVer 2.0.0](https://semver.org/); tags are `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-06
+
+### Added
+
+- `llm-wiki-base translate migrate --lang <code>` moves legacy inline
+  `<slug>.<lang>.md` files into the new `wiki-<lang>/<domain>/<kind>/<slug>.md`
+  layout; an existing target file is never overwritten.
+- `llm-wiki-base translate check` now also reports orphan translations whose
+  source page was deleted or renamed (reported, never auto-deleted).
+
+### Changed
+
+- Translations now live in parallel `wiki-<lang>/` trees mirroring `wiki/`
+  path-for-path instead of inline `<slug>.<lang>.md` files. The trees are
+  siblings of `wiki/`, so they never enter the DB/RAG index; existing wikis
+  should run `llm-wiki-base translate migrate --lang <code>` once.
+- The skip rules in `ingest`, `reindex`, and `watch` accept both layouts
+  (`wiki-<lang>/` trees and legacy `*.lang.md` files).
+- Docs (`translation`, `cli`, `retrieval-eval`, `tier3-roadmap`) and the
+  `llm-wiki-base-translate` skill describe the mirror-tree layout.
+
+## [0.1.5] - 2026-09-18
+
+### Added
+
+- `llm-wiki-base-ingest`: Mermaid diagrams found in a source are now ingested
+  into knowledge pages. Diagrams that describe one concept/entity are embedded
+  inline in the matching concept/entity page (with a provenance comment);
+  system-level or standalone diagrams are additionally saved as
+  `wiki/<domain>/diagrams/<source-slug>-N.mmd` and referenced with a
+  `<!-- diagram: ... -->` comment. `.mmd` files are never translated or indexed.
+- Diagram awareness across the skill chain: `llm-wiki-base-query` prefers
+  diagram-bearing pages and can return the fenced block verbatim,
+  `llm-wiki-base-lint` checks for broken `.mmd` references and orphan diagrams,
+  `llm-wiki-base-review` flags `stale-diagram` gaps, and
+  `llm-wiki-base-consolidate` folds diagrams into canonical concept pages.
+
+### Changed
+
+- Skill docs across `ingest`, `lint`, `query`, `reindex`, `review`,
+  `translate`, `consolidate`, and `research` now use explicit `## Overview` and
+  `## Workflow` sections; ingest stops when a source is already fully covered and
+  reports diagram counts / extracted `.mmd` paths.
+- `llm-wiki-base-translate` verifies heading structure, never writes empty
+  files, and treats Mermaid fenced blocks and `<!-- diagram: ... -->` comments as
+  code (kept verbatim, never translated).
+- Removed legacy duplicate skill copies at the repo root
+  (`.agents/skills/llm-wiki-base-{ingest,lint,query}` and their
+  `.claude/skills` + `.opencode/commands` links); the canonical copies under
+  `src/llm_wiki_base/skills/` are now the single source.
+
 ## [0.1.4] - 2026-09-14
 
 ### Added
@@ -123,7 +174,9 @@ First release.
   `docs/` (`cli`, `retrieval-eval`, `mcp`, `upgrading`, `translation`),
   animated `docs/wiki-flow.html`.
 
-[Unreleased]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.5...v0.1.6
+[0.1.5]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/nihmtaho/llm-wiki-base/compare/v0.1.1...v0.1.2

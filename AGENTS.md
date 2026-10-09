@@ -7,6 +7,7 @@ You are the **wiki maintainer**. The human supplies sources, questions, and revi
 - `raw/inbox/` — staging. New files awaiting ingest (mutable).
 - `raw/` — **local cache** post-ingest (URL and non-URL alike). **Deletable at will** — provenance lives in the page's `sources:` field. Gitignored by default.
 - `wiki/` — markdown you own. **This is the knowledge**: persistent, cross-linked.
+- `wiki-<lang>/` — parallel translation tree per target lang (e.g. `wiki-vi/`), mirrors `wiki/` path-for-path. Derived, **never indexed**. Details: `_schema.md` → Translations.
 - `wiki/.proposals/` — staging for human-gated edits (via MCP `wiki_propose_edit`).
 - `wiki/alerts/` — review gap queue (contradiction, stale, trust gap, pin conflict). Pseudo-domain; frontmatter `domain: alerts, kind: alert, status: open|closed`.
 - `wiki/pins.yml` — human hand-edits (claim + anchor) that survive regeneration. Ingest/consolidate MUST NOT overwrite a section an `active` pin anchors.
@@ -62,22 +63,23 @@ CLI/Python is deterministic.
 2. Read it, **auto-detect domain**, create `wiki/<domain>/` if new.
 3. Write summary → `wiki/<domain>/source/<slug>.md` (`domain`, `kind: source`, `sources`, `updated`, `status: active`, `generated`). No URL → `sources: []` (never a local path — it drifts). **Never set `verified`.** Prefer list-of-dicts + `[^id]` citations.
 4. Create/update related entity/concept pages in the same domain; every new page needs ≥1 outbound wikilink. Respect `active` pins; pin conflicts → `wiki/alerts/`, never a silent revert.
+   - **Synthesis pass first** (ingest skill, step 2.5 SYNTHESIS PASS): `wiki_search` the same topic/pattern BEFORE creating any new page — existing page found → update it in place (new claim + footnote to the new source, a `relations` edge such as `covered-in` → the new source page, `log.md: "synthesized into <page>"`); contradicting source → keep the old claim, add `rel: contradicts`, open `wiki/alerts/`.
 5. Translation enabled (`[translate]` in `.llm-wiki-base.toml`) → invoke `llm-wiki-base-translate` per new page (never translate inline).
 6. Update `wiki/<domain>/index.md` (new domain → also add a row to `wiki/index.md`). Page count = `find wiki/<domain> -name "*.md" | wc -l` — count, don't guess.
 7. Prepend to `wiki/log.md`: `## [YYYY-MM-DD HH:MM:SS] ingest | <title>` + bullets for actions actually taken. Date = the source page's `updated`.
-8. `llm-wiki-base ingest <path> && llm-wiki-base reindex` (CLI only, never via MCP). `*.lang.md` + `index.md`/`log.md` skip chunking automatically.
+8. `llm-wiki-base ingest <path> && llm-wiki-base reindex` (CLI only, never via MCP). `wiki-<lang>/` trees (legacy `*.lang.md`) + `index.md`/`log.md` skip chunking automatically.
 9. Move the source `raw/inbox/<name>` → `raw/`.
 
 ### Query
 `index.md` → `wiki_search` (pool `2 × top_n_final`) → **LLM rerank** on title/snippet/`matched_by` without opening files → open `top_n_final` pages → answer with cites. Good answers get filed back as new pages. Suspect retrieval → `llm-wiki-base eval --compare`. Detail: `llm-wiki-base-query` skill.
 
 ### Lint (deterministic) / Review (semantic) / Consolidate
-- `llm-wiki-base lint`: orphan, broken wikilink, missing file (CRITICAL), frontmatter, status vocab, timestamps, footnote↔sources match, stale-after, missing index entries (`--fix` adds them), pin-orphan, `raw/inbox` leaking into `sources:`/body, style advisories.
+- `llm-wiki-base lint`: orphan, broken wikilink, missing file (CRITICAL), frontmatter, status vocab, timestamps, footnote↔sources match, stale-after, missing index entries (`--fix` adds them), pin-orphan, `raw/inbox` leaking into `sources:`/body, style advisories, plus typed-relation rules: `broken-relation-target` (CRITICAL), `unknown-rel-type` (CRITICAL), `relation-target-kind` (CRITICAL), `langpack-field-missing` (CRITICAL), `claim-without-footnote` (CRITICAL), `relation-without-note` (advisory), `inline-rel-vs-alias` (advisory), `langpack-config-error` (CRITICAL). `--fix` only clears re-derivable findings (dangling rows, index entries) — relation/claim findings are never auto-fixed.
 - `llm-wiki-base-review` skill (past `[review].interval_days`): contradictions (report, never auto-resolve), stale claims/code refs, missing concepts, trust gaps, pin conflicts → `wiki/alerts/` (`status: open`; auto-close if not re-raised).
 - `llm-wiki-base-consolidate` skill: merge scraps into canonical concepts, additive; duplicates → `superseded` + `x_supersedes`; judgment changes → `--unverify`.
 
 ### Translation (optional)
-Parallel `<slug>.<lang>.md` files, same frontmatter, exact translation (code/URLs/terms preserved), **excluded from DB/RAG**. Config in `.llm-wiki-base.toml` (`[translate]` enabled + langs); `llm-wiki-base translate enable|status|disable|check`. Warn if `langs` > 5 or many pages (token cost).
+One mirror tree per target lang: `wiki-<lang>/<domain>/<kind>/<slug>.md` (sibling of `wiki/`, same relative path). Same frontmatter keys, exact translation (code/URLs/terms preserved), **excluded from DB/RAG** because the tree is outside the index roots. Config in `.llm-wiki-base.toml` (`[translate]` enabled + langs); `llm-wiki-base translate enable|status|disable|check|migrate`. `migrate` moves legacy inline `<slug>.<lang>.md` files. Warn if `langs` > 5 or many pages (token cost).
 
 ## Safety
 - **AI proposes, human decides.** Direct writes only for re-derivable content (index, log). Fact assertions → `wiki_propose_edit` staging.
@@ -90,7 +92,7 @@ Parallel `<slug>.<lang>.md` files, same frontmatter, exact translation (code/URL
 - Small scale: `index.md` suffices.
 - **Union + RRF over rank** across `bm25_page`, `bm25_chunk`, `vector_chunk`. Results carry `matched_by` + `rank` + `snippet` (enough to *pick* a page, not to answer).
 - **Rerank is the skill's job** (`rerank = "llm"`): wide pool, score on metadata, open `top_n_final`. No reranker model in code.
-- Never chunked: `index.md`/`log.md`, `*.lang.md`, frontmatter, verbatim footnotes.
+- Never chunked: `index.md`/`log.md`, `wiki-<lang>/` translation trees (legacy `*.lang.md`), frontmatter, verbatim footnotes.
 - Channels fail closed and loudly (`reindex --check`, eval `[ERROR]`); `fusion = "weighted"` is the one-line rollback / A-B baseline.
 - Enable `vector = true` only on `eval --compare` evidence (R@k/MRR gain). Goldens in `eval/golden.toml` (commit).
 - Behavior lives in `.llm-wiki-base.toml`; `WIKI_*` env vars override; `llm-wiki-base config show` reveals each value's source. Changing `embed_model`/`chunk_tokens`/`vector`/`fusion` → `reindex --full`.
@@ -99,4 +101,4 @@ Parallel `<slug>.<lang>.md` files, same frontmatter, exact translation (code/URL
 Read/search (`wiki_search`, `semantic_search`, `wiki_read`, `wiki_list`, `list_raw_source`, `read_raw_source`) · intake `wiki_submit` → `raw/inbox/` · proposals `wiki_propose_edit` → `.proposals/`. Write tools REQUIRE `wiki=`. **MCP never ingests** — page writing is maintainer-only (CLI / `llm-wiki-base-ingest` skill).
 
 ## Tooling
-`scripts/extract_{url,pdf,youtube}.py` → `raw/inbox/` · `tools/{paths,chunking,search,watch,ingest,reindex,eval}.py` · `rag/index.py` (vector chunks). Chunking is shared between BM25-chunk and vector-chunk — boundaries must match for RRF to mean anything.
+`scripts/extract_{url,pdf,youtube}.py` → `raw/inbox/` · `tools/{paths,chunking,search,watch,ingest,reindex,eval,graph}.py` · `rag/index.py` (vector chunks). Chunking is shared between BM25-chunk and vector-chunk — boundaries must match for RRF to mean anything.
