@@ -44,6 +44,9 @@ templates/langpacks/japanese/
 
 ## `kinds.yml` reference
 
+Shape of the file — **abridged** example; the shipped pack
+(`templates/langpacks/japanese/kinds.yml`) is the full field reference:
+
 ```yaml
 kinds:
   grammar-point:

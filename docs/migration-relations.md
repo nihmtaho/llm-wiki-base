@@ -22,11 +22,11 @@ uv tool install --force "git+https://github.com/nihmtaho/llm-wiki-base.git"  # u
 #   local clone instead: git pull && pip install -e .[dev]
 llm-wiki-base setup tools
 
-# 2. In the wiki root: re-sync skills + schema templates (.agents/skills/,
-#    AGENTS.md, _schema.md come from the new core; same -c as your original init)
-llm-wiki-base init personal --force        # project wiki: llm-wiki-base init project --force
+# 2. Re-sync the wiki's managed files from the new core (backups first)
+llm-wiki-base upgrade --dry-run        # preview: which files change
+llm-wiki-base upgrade --to latest      # backup → overwrite skills + AGENTS.md + _schema.md
 
-# 3. Build the links table — required, once
+# 3. In the wiki root — build the links table (required, once)
 llm-wiki-base reindex --full
 
 # 4. Optional: see what the new checks find
@@ -35,12 +35,21 @@ llm-wiki-base lint
 
 Notes:
 
+- **Step 2 is the sync mechanism.** Mirroring [upgrading.md](upgrading.md):
+  `upgrade` first backs up the managed files (`.agents/skills/`, `AGENTS.md`,
+  `_schema.md`, `.claude/CLAUDE.md`) into `.llm-wiki-base/backups/<timestamp>/`
+  (keeps 5), then re-runs the installers with **overwrite** (pruning
+  shipped-away skills; your own skills kept). This is what delivers the new
+  `_schema.md` **Relations & Claims** section. The wiki must be in the registry —
+  check `llm-wiki-base wiki list`, register `llm-wiki-base wiki add <name> <path>`.
+  Safety rules (running core checked out at the target tag, rollback) live in
+  [upgrading.md](upgrading.md).
+- `llm-wiki-base init personal|project` only **creates** a wiki: it installs
+  skills into a fresh dir but never overwrites an existing `AGENTS.md` /
+  `_schema.md` — it is not a sync path for an existing wiki.
 - **Step 3 is mandatory once**: incremental reindex only extracts links for
   content-hash-changed pages, so an untouched wiki gets an empty `links` table
   without `--full`.
-- Tag-registered wikis can fold steps 1–2 into one backed-up operation:
-  `llm-wiki-base upgrade --dry-run` → `llm-wiki-base upgrade --to latest`
-  (details: [upgrading.md](upgrading.md)). Then still run step 3.
 - **Language-focused wiki?** Opt into a pack — add to `.llm-wiki-base.toml`:
 
   ```toml

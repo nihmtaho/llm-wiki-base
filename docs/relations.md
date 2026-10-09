@@ -60,8 +60,9 @@ For an edge that belongs where the prose is:
   priority **frontmatter > inline > wikilink**; the frontmatter `note` wins on
   conflict. A typed edge and the default `related` edge to the same page are
   *different* relations, so both are kept.
-- Everything lands in the `links` table (`src`, `rel`, `dst`, `note`, `origin`) —
-  queryable with plain SQL. Retrieval-side graph expansion is roadmap, not shipped.
+- Everything lands in the `links` table (`src`, `rel`, `dst`, `note`,
+  `src_footnote`, `origin`) — queryable with plain SQL. Retrieval-side graph
+  expansion is roadmap, not shipped.
 - Edit a page → `llm-wiki-base reindex` re-syncs just that page's edges;
   `llm-wiki-base reindex --full` rebuilds the whole table.
 
