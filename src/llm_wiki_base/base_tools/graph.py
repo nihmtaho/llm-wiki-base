@@ -26,6 +26,7 @@ from config_file import get_config
 _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 _FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _FOOTNOTE_REF_RE = re.compile(r"\[\^([A-Za-z0-9_-]+)\]")
+_URL_RE = re.compile(r"^https?://")
 
 RESERVED_REL_PREFIX = "rel:"
 DEFAULT_REL = "related"
@@ -65,11 +66,22 @@ class Link:
 
 
 def _normalize_dst(target: str) -> str:
-    """Chuẩn hóa target về path form; giữ nguyên #anchor."""
+    """Chuẩn hóa target về path form; giữ nguyên URL + #anchor.
+
+    Path (non-URL) không có suffix `.md` → thêm vào — mirror lint.py
+    existence-check normalization — để `[[wiki/x]]` (plain) và typed target
+    `wiki/x.md` cho CÙNG dst `wiki/x.md` (không fragment graph theo form viết).
+    URL và pure-anchor `#...` giữ nguyên.
+    """
     dst = target.strip()
     while dst.startswith("./"):
         dst = dst[2:]
-    return dst
+    if not dst or dst.startswith("#") or _URL_RE.match(dst):
+        return dst
+    path, sep, anchor = dst.partition("#")
+    if path and not path.endswith(".md"):
+        path += ".md"
+    return path + sep + anchor
 
 
 def _strip_footnotes(text: str) -> str:

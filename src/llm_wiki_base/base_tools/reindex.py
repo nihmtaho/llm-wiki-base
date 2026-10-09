@@ -12,7 +12,9 @@ Chế độ:
 Metadata drift: <WIKI_DIR>/.index_meta.json ghi embed_model/vector/chunk_tokens
 của lần reindex cuối — lệch config hiện tại → warning "chạy reindex --full".
 
-SCHEMA_VERSION 3: thêm bảng `chunks_fts` (BM25 chunk-level). Vì incremental bỏ
+SCHEMA_VERSION 3: thêm bảng `chunks_fts` (BM25 chunk-level). SCHEMA_VERSION 4:
+thêm bảng `links` (typed relations — DELETE-FROM-links rồi sync per-file ở
+`--full`). Vì incremental bỏ
 qua page có content-hash không đổi, wiki cũ PHẢI chạy `reindex --full` một lần
 thì kênh bm25_chunk mới có dữ liệu — bump version để drift warning bắt buộc
 bước đó hiện ra ngay.

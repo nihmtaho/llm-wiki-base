@@ -20,8 +20,8 @@ pack = "japanese"
 - `pack` must be a single folder name (no path separators, no `..`).
 - Enabled but the folder is missing → **fail loud**, never silent: lint
   CRITICAL `langpack-config-error` listing the paths tried.
-- After changing the block: `llm-wiki-base lint` (validation runs per command —
-  there is no daemon to restart).
+- After changing the block: `llm-wiki-base lint` (validation runs in `lint` —
+  ingest/reindex are pack-free by design; there is no daemon to restart).
 
 ## Where packs load from
 
@@ -39,7 +39,7 @@ First folder containing **both** `kinds.yml` and `relations.yml` wins. The shipp
 templates/langpacks/japanese/
 ├── kinds.yml          # kinds + required fields
 ├── relations.yml      # relation vocabulary + target constraints
-└── schema-notes.md    # pack's contribution to the wiki's _schema.md
+└── schema-notes.md    # reference material for the human wiki keeper (not auto-delivered)
 ```
 
 ## `kinds.yml` reference
@@ -70,8 +70,10 @@ kinds:
     `langpack-field-missing` (no auto-fix; AI/human writes the value).
   - `{optional: true}` — allowed, otherwise unchecked.
   - `{optional: true, enum: [...]}` — declared allowed values. Lint checks
-    *presence*, not membership; the enum table is surfaced to the authoring agent
-    through `schema-notes.md`.
+    *presence*, not membership. `schema-notes.md` is reference material for the
+    **human** wiki keeper — nothing auto-appends it to `_schema.md` or anywhere
+    else; the agent learns the required fields through `langpack-field-missing`
+    lint findings.
 - The pack's slug rules also live in `schema-notes.md` (japanese: grammar-point
   slugs derive from the normalized **pattern** — `ba-tara.md`, `te-kara.md` —
   never book + lesson; a textbook name in a slug → style advisory).
@@ -109,7 +111,8 @@ relations:
    - installed tool: create `~/.llm-wiki-base/templates/langpacks/<your-pack>/` instead (the global base is a valid lookup location on its own).
 2. **Edit** `kinds.yml` (kinds, paths, fields), `relations.yml` (vocabulary,
    target constraints), `schema-notes.md` (field tables, slug rule, relation
-   vocabulary, claim examples — this is what the agent reads).
+   vocabulary, claim examples — reference material for the human keeper; the
+   agent learns required fields via `langpack-field-missing` lint findings).
 3. **Point the wiki at it** — `[langpack] pack = "<your-pack>"` in
    `.llm-wiki-base.toml` — then run `llm-wiki-base lint` and
    `llm-wiki-base reindex`. Each command is a fresh process, so the YAML reloads

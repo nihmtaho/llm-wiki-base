@@ -1,8 +1,9 @@
 # Japanese pack — bổ sung cho `_schema.md`
 
-> Fragment này được append vào `_schema.md` của wiki khi `[langpack]` bật
-> (`enabled = true`, `pack = "japanese"`). Chỉ áp dụng cho wiki này — core
-> không đổi.
+> Tài liệu tham khảo cho người giữ wiki — KHÔNG được tự động append vào
+> `_schema.md` (kể cả khi `[langpack]` bật: `enabled = true`,
+> `pack = "japanese"`). Agent học required fields qua lint
+> `langpack-field-missing`.
 
 ## Kinds (japanese)
 

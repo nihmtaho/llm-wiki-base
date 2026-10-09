@@ -70,6 +70,16 @@ def _has_url_source(filepath):
     return False
 
 
+def _index_file_and_links(c, full, prov):
+    """Index 1 file (pages + FTS) rồi sync bảng links cùng content — mirror
+    reindex.py per-file path. links là derived theo src, không sync ở đây thì
+    drift dưới watch (incremental reindex KHÔNG self-heal: content-hash đã đổi
+    từ lúc watch index → page bị skip)."""
+    search.index_file_at(c, full, prov)
+    with open(full, encoding="utf-8") as f:
+        db.sync_links(c, os.path.relpath(full, WIKI_ROOT), f.read())
+
+
 def scan_ingest(c, prov):
     """Move file từ raw/inbox/ → raw/ (cả URL + no-URL).
 
@@ -88,7 +98,7 @@ def scan_ingest(c, prov):
         full = os.path.join(RAW_INBOX, name)
         if not os.path.isfile(full) or name.startswith("."):
             continue
-        search.index_file_at(c, full, prov)
+        _index_file_and_links(c, full, prov)
         n = os.path.getsize(full)
         # Cả URL + no-URL đều vào raw/. Phân biệt provenance chỉ trong sources:.
         dest = os.path.join(RAW_DIR, name)
@@ -116,7 +126,7 @@ def scan_wiki(c, prov):
         row = c.execute("SELECT mtime FROM pages WHERE path = ?", (rel,)).fetchone()
         if row and abs(row["mtime"] - mtime) < 1e-6:
             continue
-        search.index_file_at(c, fp, prov)
+        _index_file_and_links(c, fp, prov)
         changed.append(rel)
     return changed
 

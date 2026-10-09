@@ -34,8 +34,9 @@ relations:
   allowed.
 - `contrast-with` / `contradicts` without a `note` → lint advisory
   (`relation-without-note`): a contrast nobody can read is a contrast nobody trusts.
-- Be consistent with the target form — the stored `dst` is the literal path you
-  write (this guide and `_schema.md` use the `.md` form for typed targets).
+- Canonical target form is the `.md` path (as used in this guide and
+  `_schema.md`); targets are normalized to `.md` on extraction, so
+  `[[wiki/x]]` and `wiki/x.md` produce the same stored `dst`.
 
 ## Inline typed wikilinks (supplementary)
 

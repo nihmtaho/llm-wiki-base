@@ -130,7 +130,7 @@ wiki/<domain>/<kind>/<slug>.md   ⇄   wiki-<lang>/<domain>/<kind>/<slug>.md
 
 Typed, machine-checkable relations + atomic claims. Extracted deterministically into the
 `links` table by ingest/reindex (no LLM in the extraction path). Full user guide:
-`docs/relations.md`. Old pages stay valid — no backfill; add relations as consolidate touches them.
+llm-wiki-base repo → `docs/relations.md`. Old pages stay valid — no backfill; add relations as consolidate touches them.
 
 **Frontmatter `relations:` (primary source):**
 

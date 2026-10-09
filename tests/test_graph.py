@@ -96,6 +96,31 @@ def test_extract_plain_wikilink_default_rel(tmp_path, monkeypatch):
                                   origin="wikilink")]
 
 
+def test_normalize_dst_md_form_equivalence(tmp_path, monkeypatch):
+    """dst chuẩn hóa về `.md`: `[[wiki/x]]` (plain) và typed target `wiki/x.md`
+    cho CÙNG dst — graph không fragment theo form viết. URL + pure anchor giữ nguyên."""
+    graph = _load_graph(tmp_path, monkeypatch)
+    plain = graph.extract_links("# x\n\n[[wiki/x]]\n")
+    typed = graph.extract_links(
+        "---\n"
+        "relations:\n"
+        "  - rel: contrast-with\n"
+        "    target: wiki/x.md\n"
+        "---\n\n"
+        "# y\n"
+    )
+    assert plain[0].dst == "wiki/x.md"
+    assert typed[0].dst == "wiki/x.md"
+    # Path + #anchor: suffix gắn vào path, anchor giữ nguyên.
+    anchored = graph.extract_links("# x\n\n[[wiki/x#claims|rel:contradicts]]\n")
+    assert anchored[0].dst == "wiki/x.md#claims"
+    # URL và pure-anchor không bị đụng tới.
+    url = graph.extract_links("# x\n\n[[https://example.com/page]]\n")
+    assert url[0].dst == "https://example.com/page"
+    anchor_only = graph.extract_links("# x\n\n[[#claims|rel:contradicts]]\n")
+    assert anchor_only[0].dst == "#claims"
+
+
 def test_dedup_frontmatter_wins(tmp_path, monkeypatch):
     graph = _load_graph(tmp_path, monkeypatch)
     txt = (
@@ -349,6 +374,163 @@ def test_delete_page_removes_its_links(tmp_path, monkeypatch):
     assert len(other) == 1
     assert other[0]["src"] == "wiki/other.md"
     assert other[0]["dst"] == "wiki/keep.md"
+
+
+def _load_module(tmp_path, monkeypatch, name, stub_rag=False):
+    """Import 1 module base_tools với WIKI_ROOT → tmp (purge cache; optional stub rag index)."""
+    monkeypatch.setenv("WIKI_ROOT", str(tmp_path))
+    base_tools = os.path.join("src", "llm_wiki_base", "base_tools")
+    monkeypatch.syspath_prepend(os.path.abspath(base_tools))
+    for mod in [m for m in list(sys.modules) if m in (
+            "graph", "db", "search", "chunking", "config_file", "embed", "paths",
+            "llm_wiki_base.paths", "llm_wiki_base.config_file",
+            "ingest", "lint", "watch", "reindex", "index")]:
+        del sys.modules[mod]
+    if stub_rag:
+        import types
+        stub = types.ModuleType("index")
+        stub.build_index = lambda **kw: 0
+        monkeypatch.setitem(sys.modules, "index", stub)
+    return __import__(name)
+
+
+def _drop_global_rag_syspath():
+    """reindex/watch chèn global rag dir vào sys.path ở import-time — dọn để không làm bẩn test khác."""
+    import sys
+    global_rag = os.path.join(
+        os.environ.get("LLM_WIKI_BASE_DIR", os.path.expanduser("~/.llm-wiki-base")), "rag")
+    while global_rag in sys.path:
+        sys.path.remove(global_rag)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I2 fix: watch index path sync links (không drift dưới watch)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_watch_index_syncs_links(tmp_path, monkeypatch):
+    """watch._index_file_and_links để lại edge trong bảng links (mirror reindex)."""
+    _load_module(tmp_path, monkeypatch, "watch")
+    (tmp_path / ".llm-wiki-base.toml").write_text(
+        "[retrieval]\nvector = false\n", encoding="utf-8")
+    page = tmp_path / "wiki" / "tech" / "concept" / "a.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text(
+        "---\n"
+        "title: a\n"
+        "domain: tech\n"
+        "kind: concept\n"
+        "relations:\n"
+        "  - rel: contrast-with\n"
+        "    target: wiki/tech/concept/b.md\n"
+        '    note: "so sánh"\n'
+        "    source: s1\n"
+        "---\n\n"
+        "# a\n",
+        encoding="utf-8",
+    )
+    import db
+    import watch
+    conn = db.get_conn(":memory:")
+    db.init_db(conn)
+    try:
+        watch._index_file_and_links(conn, str(page), None)
+        rows = db.get_links(conn, "wiki/tech/concept/a.md")
+        assert len(rows) == 1  # sync_links chạy ngay sau index_file_at
+        assert rows[0]["rel"] == "contrast-with"
+        assert rows[0]["dst"] == "wiki/tech/concept/b.md"
+        assert rows[0]["note"] == "so sánh"
+        assert rows[0]["origin"] == "frontmatter"
+    finally:
+        _drop_global_rag_syspath()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I3 fix: test_reindex_full_equals_incremental (plan-pinned — DELETE-FROM-links
+# + per-file resync reconcile path)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _links_rows(conn):
+    return [tuple(r) for r in conn.execute(
+        "SELECT src, rel, dst, note, src_footnote, origin FROM links"
+        " ORDER BY src, rel, dst").fetchall()]
+
+
+def test_reindex_full_equals_incremental(tmp_path, monkeypatch, capsys):
+    """reindex --full dựng lại bảng links GIỐNG hệt incremental — pins DELETE-FROM-links
+    + per-file resync reconcile (edge của file đã biến mất không sống sót)."""
+    reindex = _load_module(tmp_path, monkeypatch, "reindex", stub_rag=True)
+    try:
+        (tmp_path / ".llm-wiki-base.toml").write_text(
+            "[retrieval]\nvector = false\n", encoding="utf-8")
+        # 2 wiki page: 1 frontmatter relation + 1 plain wikilink.
+        p1 = tmp_path / "wiki" / "tech" / "concept" / "a.md"
+        p1.parent.mkdir(parents=True, exist_ok=True)
+        p1.write_text(
+            "---\n"
+            "title: a\n"
+            "domain: tech\n"
+            "kind: concept\n"
+            "relations:\n"
+            "  - rel: contrast-with\n"
+            "    target: wiki/tech/concept/b.md\n"
+            '    note: "so sánh"\n'
+            "    source: s1\n"
+            "---\n\n"
+            "# a\n",
+            encoding="utf-8",
+        )
+        p2 = tmp_path / "wiki" / "tech" / "concept" / "b.md"
+        p2.write_text(
+            "---\ntitle: b\ndomain: tech\nkind: concept\n---\n\n"
+            "# b\n\n[[wiki/tech/concept/a]]\n",
+            encoding="utf-8",
+        )
+        import db
+
+        # Incremental: sync_links trực tiếp per-file (giống reindex per-file path).
+        conn = db.get_conn()
+        db.init_db(conn)
+        for fp in (p1, p2):
+            rel = os.path.relpath(str(fp), str(tmp_path))
+            db.sync_links(conn, rel, fp.read_text(encoding="utf-8"))
+        incremental = _links_rows(conn)
+        conn.close()
+        assert len(incremental) == 2  # 1 typed + 1 default — sanity
+        capsys.readouterr()
+
+        # --full: DELETE-FROM-links rồi sync per-file toàn bộ.
+        monkeypatch.setattr(sys, "argv", ["reindex.py", "--full"])
+        reindex.main()
+        conn = db.get_conn()
+        full = _links_rows(conn)
+        conn.close()
+        assert full == incremental
+
+        # Thêm edge từ 1 file rồi xoá file đó: incremental (sync per-file) dọn được,
+        # --full cũng phải dọn y hệt (DELETE-FROM-links trước khi resync).
+        p3 = tmp_path / "wiki" / "tech" / "concept" / "c.md"
+        p3.write_text(
+            "---\ntitle: c\ndomain: tech\nkind: concept\n---\n\n"
+            "# c\n\n[[wiki/tech/concept/a]]\n",
+            encoding="utf-8",
+        )
+        conn = db.get_conn()
+        db.init_db(conn)
+        db.sync_links(conn, "wiki/tech/concept/c.md",
+                      p3.read_text(encoding="utf-8"))
+        conn.close()
+        p3.unlink()  # page biến mất trước lần reindex --full kế tiếp
+
+        monkeypatch.setattr(sys, "argv", ["reindex.py", "--full"])
+        reindex.main()
+        conn = db.get_conn()
+        full2 = _links_rows(conn)
+        conn.close()
+        assert full2 == incremental  # edge của c.md không sống sót
+    finally:
+        _drop_global_rag_syspath()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

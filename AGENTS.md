@@ -74,7 +74,7 @@ CLI/Python is deterministic.
 `index.md` → `wiki_search` (pool `2 × top_n_final`) → **LLM rerank** on title/snippet/`matched_by` without opening files → open `top_n_final` pages → answer with cites. Good answers get filed back as new pages. Suspect retrieval → `llm-wiki-base eval --compare`. Detail: `llm-wiki-base-query` skill.
 
 ### Lint (deterministic) / Review (semantic) / Consolidate
-- `llm-wiki-base lint`: orphan, broken wikilink, missing file (CRITICAL), frontmatter, status vocab, timestamps, footnote↔sources match, stale-after, missing index entries (`--fix` adds them), pin-orphan, `raw/inbox` leaking into `sources:`/body, style advisories.
+- `llm-wiki-base lint`: orphan, broken wikilink, missing file (CRITICAL), frontmatter, status vocab, timestamps, footnote↔sources match, stale-after, missing index entries (`--fix` adds them), pin-orphan, `raw/inbox` leaking into `sources:`/body, style advisories, plus typed-relation rules: `broken-relation-target` (CRITICAL), `unknown-rel-type` (CRITICAL), `relation-target-kind` (CRITICAL), `langpack-field-missing` (CRITICAL), `claim-without-footnote` (CRITICAL), `relation-without-note` (advisory), `inline-rel-vs-alias` (advisory), `langpack-config-error` (CRITICAL). `--fix` only clears re-derivable findings (dangling rows, index entries) — relation/claim findings are never auto-fixed.
 - `llm-wiki-base-review` skill (past `[review].interval_days`): contradictions (report, never auto-resolve), stale claims/code refs, missing concepts, trust gaps, pin conflicts → `wiki/alerts/` (`status: open`; auto-close if not re-raised).
 - `llm-wiki-base-consolidate` skill: merge scraps into canonical concepts, additive; duplicates → `superseded` + `x_supersedes`; judgment changes → `--unverify`.
 
