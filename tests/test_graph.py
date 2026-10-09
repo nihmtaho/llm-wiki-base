@@ -184,3 +184,79 @@ def test_skip_fenced_code_blocks(tmp_path, monkeypatch):
                       note="real claim.", src_footnote=None,
                       origin="inline") in links
     assert len(links) == 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Task 2: links table + sync_links (db.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_sync_links_upserts(tmp_path, monkeypatch):
+    _load_graph(tmp_path, monkeypatch)
+    import db
+    conn = db.get_conn(":memory:")
+    db.init_db(conn)
+    txt = (
+        "---\n"
+        "relations:\n"
+        "  - rel: contrast-with\n"
+        "    target: wiki/y.md\n"
+        '    note: "điều kiện 〜たら"\n'
+        "    source: s1\n"
+        "---\n"
+        "\n"
+        "# x\n"
+    )
+    n = db.sync_links(conn, "wiki/a.md", txt)
+    assert n == 1
+    rows = db.get_links(conn, "wiki/a.md")
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["src"] == "wiki/a.md"
+    assert row["rel"] == "contrast-with"
+    assert row["dst"] == "wiki/y.md"
+    assert row["note"] == "điều kiện 〜たら"
+    assert row["src_footnote"] == "s1"
+    assert row["origin"] == "frontmatter"
+
+
+def test_sync_links_gcs_removed_edges(tmp_path, monkeypatch):
+    _load_graph(tmp_path, monkeypatch)
+    import db
+    conn = db.get_conn(":memory:")
+    db.init_db(conn)
+    # Src khác — GC của wiki/a.md không được đụng tới.
+    db.sync_links(conn, "wiki/other.md", "[[wiki/keep.md]]\n")
+    # 2 edges: typed + default.
+    n = db.sync_links(
+        conn, "wiki/a.md",
+        "# x\n\n"
+        "[[wiki/a.md|rel:contrast-with]]\n"
+        "[[wiki/b.md]]\n",
+    )
+    assert n == 2
+    # Edit: chỉ còn 1 edge → edge typed bị GC.
+    n2 = db.sync_links(
+        conn, "wiki/a.md",
+        "# x\n\n[[wiki/b.md]]\n",
+    )
+    assert n2 == 1
+    rows = db.get_links(conn, "wiki/a.md")
+    assert len(rows) == 1
+    assert rows[0]["rel"] == "related"
+    assert rows[0]["dst"] == "wiki/b.md"
+    assert rows[0]["origin"] == "wikilink"
+    # Src khác còn nguyên.
+    assert len(db.get_links(conn, "wiki/other.md")) == 1
+
+
+def test_links_table_in_init_db(tmp_path, monkeypatch):
+    _load_graph(tmp_path, monkeypatch)
+    import db
+    conn = db.get_conn(":memory:")
+    db.init_db(conn)
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE name='links'"
+    ).fetchone()
+    assert row is not None
+    assert row["name"] == "links"

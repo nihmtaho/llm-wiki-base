@@ -269,6 +269,22 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
     except sqlite3.OperationalError:
         pass
+    # Typed relations (spec §4.1) — PK (src, rel, dst) để upsert idempotent.
+    # Không touching bảng pages; không backfill (migration gradual).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS links (
+            src    TEXT NOT NULL,   -- source page path, e.g. wiki/languages/grammar-point/ba.md
+            rel    TEXT NOT NULL,   -- relation type, e.g. contrast-with
+            dst    TEXT NOT NULL,   -- target path, optionally with #anchor
+            note   TEXT,            -- AI-authored context (optional)
+            src_footnote TEXT,      -- footnote id, e.g. s1 (optional)
+            origin TEXT NOT NULL,   -- 'frontmatter' | 'inline' | 'wikilink'  (debug drift)
+            PRIMARY KEY (src, rel, dst)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_links_dst ON links(dst)")
     conn.commit()
 
 
@@ -327,6 +343,52 @@ def delete_page(conn, path):
     conn.execute("DELETE FROM chunks_fts WHERE page_id = ?", (row["id"],))
     conn.execute("DELETE FROM pages WHERE id = ?", (row["id"],))
     conn.commit()
+
+
+def sync_links(conn, path: str, txt: str) -> int:
+    """Đồng bộ bảng links cho một page: trích edge từ txt, upsert, GC edge cũ.
+
+    Trả về số edge hiện có của `path`. Deterministic — không I/O file, không LLM.
+    PK (src, rel, dst) → upsert idempotent (ON CONFLICT DO UPDATE note/src_footnote/
+    origin). GC so sánh set (rel, dst) trong Python — an toàn với CJK/quote, không
+    cần build chuỗi NOT IN. Lazy import graph: graph.py import db ở top-level.
+    """
+    import graph
+
+    fresh = graph.extract_links(txt)
+    keys = {(link.rel, link.dst) for link in fresh}
+    existing = {
+        (row["rel"], row["dst"])
+        for row in conn.execute(
+            "SELECT rel, dst FROM links WHERE src = ?", (path,)
+        )
+    }
+    for link in fresh:
+        conn.execute(
+            "INSERT INTO links (src, rel, dst, note, src_footnote, origin) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(src, rel, dst) DO UPDATE SET "
+            "note=excluded.note, src_footnote=excluded.src_footnote, "
+            "origin=excluded.origin",
+            (path, link.rel, link.dst, link.note, link.src_footnote, link.origin),
+        )
+    for rel, dst in existing - keys:  # GC: edge của src này không còn trong txt
+        conn.execute(
+            "DELETE FROM links WHERE src = ? AND rel = ? AND dst = ?",
+            (path, rel, dst),
+        )
+    conn.commit()
+    return len(fresh)
+
+
+def get_links(conn, path: str) -> list[dict]:
+    """Rows links của một src (helper test/lint). Thứ tự rel, dst — deterministic."""
+    cur = conn.execute(
+        "SELECT src, rel, dst, note, src_footnote, origin FROM links "
+        "WHERE src = ? ORDER BY rel, dst",
+        (path,),
+    )
+    return [dict(row) for row in cur.fetchall()]
 
 
 def list_pages(conn, domain=None, kind=None, category=None):
