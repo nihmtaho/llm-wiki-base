@@ -20,6 +20,7 @@ dependencies = [
     "platformdirs>=4",
     "tomli>=2; python_version < '3.11'",
     "tomli-w>=1",
+    "PyYAML",
 ]
 
 [project.scripts]
