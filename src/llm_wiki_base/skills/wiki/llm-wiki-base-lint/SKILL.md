@@ -16,7 +16,7 @@ Schema: `_schema.md`. Runbook: `AGENTS.md`.
 
 ## Overview
 
-Runs `llm-wiki-base lint` to detect structural issues, fixes re-derivable content (index entries, dangling DB rows, bad formats), checks diagram file integrity, and hands semantic gaps to `llm-wiki-base-review`. Never deletes pages or pins. Never touches semantics. Findings are classified by severity: CRITICAL → WARNING → ADVISORY.
+Runs `llm-wiki-base lint` to detect structural issues, fixes re-derivable content (index entries, dangling DB rows, bad formats), checks typed-relation + claims rules (broken relation target, unknown rel, pack fields, claim provenance), checks diagram file integrity, and hands semantic gaps to `llm-wiki-base-review`. Never deletes pages or pins. Never touches semantics. Findings are classified by severity: CRITICAL → WARNING → ADVISORY.
 
 ## When
 
@@ -33,6 +33,12 @@ Periodically (`llm-wiki-base watch` runs it every `WATCH_LINT_SEC`) or when the 
 
    **CRITICAL** (blocks search — fix first):
    - **missing_file**: page in DB but file missing on disk → `llm-wiki-base lint --fix` (drops dangling DB rows).
+   - **broken-relation-target**: typed relation (frontmatter/inline) → dst file missing → fix the path or create the page (no auto-fix).
+   - **unknown-rel-type**: rel not in the pack vocabulary → fix the rel name or extend the pack's `relations.yml`.
+   - **relation-target-kind**: rel `targets:` constraint violated (dst wrong kind) → retarget the relation.
+   - **langpack-field-missing**: page under a pack kind's path lacks a required frontmatter field → backfill it.
+   - **claim-without-footnote**: bullet in `## Claims` without `[^id]` → add the citation.
+   - **langpack-config-error**: `[langpack]` broken (bad/missing pack) → fix `.llm-wiki-base.toml` / re-sync templates.
 
    **WARNING** (structural gap — address in this pass):
    - **broken-wikilink**: `[[target]]` points at nonexistent file → fix the path or create the page.
@@ -50,6 +56,7 @@ Periodically (`llm-wiki-base watch` runs it every `WATCH_LINT_SEC`) or when the 
 
    **ADVISORY** (fix when touching that page; governed by `[lint]` in `.llm-wiki-base.toml`):
    - **dense-bullet / indent-depth / banned-terms**: style guidelines — don't hold up the pass.
+   - **relation-without-note / inline-rel-vs-alias**: typed-relation hygiene — `contrast-with`/`contradicts` without `note`, or conflicting rel definitions on the same dst.
 
 3. **[codebase] Collect code paths** (input for review, NO verdicts here):
    - Extract every code path referenced in `entity/` + `concept/` pages.

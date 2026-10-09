@@ -73,10 +73,11 @@ def test_broken_relation_target(tmp_path, monkeypatch):
     assert result["critical_count"] >= 1
 
 
-def test_broken_relation_target_plain_wikilink(tmp_path, monkeypatch):
-    """Plain [[missing]] cũng là edge `related` trong links table → cũng CRITICAL.
+def test_plain_wikilink_no_broken_relation_target(tmp_path, monkeypatch):
+    """Plain [[missing]] là edge `related` — đã có broken-wikilink WARNING.
 
-    Broken-wikilink (WARNING, có line) vẫn report song song — 2 rule, 2 severity.
+    KHÔNG được nổ thêm broken-relation-target (CRITICAL) trên cùng edge:
+    wiki không pack phải giữ nguyên exit behavior (zero behavior change).
     """
     db, lint, conn = _load_lint(tmp_path, monkeypatch)
     path = _page(db, conn, tmp_path, "wiki/tech/concept/a.md",
@@ -84,8 +85,9 @@ def test_broken_relation_target_plain_wikilink(tmp_path, monkeypatch):
         "[[wiki/tech/concept/gone.md]]\n")
     result = lint.lint(conn, wiki_root=str(tmp_path))
     msgs = _msgs(result, path)
-    assert any("broken-relation-target" in m for m in msgs)
-    assert any("broken-wikilink" in m for m in msgs)  # rule cũ không bị thay
+    assert any("broken-wikilink" in m for m in msgs)  # rule cũ giữ nguyên
+    assert not any("broken-relation-target" in m for m in msgs)
+    assert result["critical_count"] == 0  # không có critical mới → exit 0
 
 
 def test_unknown_rel_type(tmp_path, monkeypatch):
@@ -205,3 +207,25 @@ def test_langpack_field_missing(tmp_path, monkeypatch):
     assert all("(CRITICAL)" in m for m in miss_msgs)
     assert not any("langpack-field-missing" in m for m in _msgs(result, ok))
     assert result["critical_count"] == 2
+
+
+def test_langpack_config_error_no_crash(tmp_path, monkeypatch):
+    """Pack không tồn tại → load_langpack raise, nhưng lint PHẢI trả kết quả:
+    1 finding CRITICAL langpack-config-error, không exception, các rule khác chạy."""
+    db, lint, conn = _load_lint(
+        tmp_path, monkeypatch,
+        toml='[langpack]\nenabled = true\npack = "nonexistent"\n')
+    _target(tmp_path, "wiki/tech/concept/x.md")  # target tồn tại → chỉ 1 critical
+    _page(db, conn, tmp_path, "wiki/tech/concept/a.md",
+        "---\ntitle: a\ndomain: tech\nkind: concept\n---\n\n# a\n\n"
+        "[[wiki/tech/concept/x.md|rel:vague-rel]]\n")
+    result = lint.lint(conn, wiki_root=str(tmp_path))  # không được raise
+    err = [m for m in _msgs(result) if "langpack-config-error" in m]
+    assert len(err) == 1
+    assert err[0].startswith("langpack-config-error:")
+    assert "(CRITICAL)" in err[0]
+    assert "nonexistent" in err[0]  # message gốc được giữ lại
+    # Pack không load được → validate/fields skip (fail-visible, không fail-open
+    # âm thầm): không có unknown-rel-type dù rel lạ.
+    assert not any("unknown-rel-type" in m for m in _msgs(result))
+    assert result["critical_count"] == 1

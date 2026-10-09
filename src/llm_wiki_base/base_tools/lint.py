@@ -183,9 +183,10 @@ def _check_wikilinks(path: str, txt: str, WIKI_ROOT: str, add, linked: set) -> N
 def _check_relations(path: str, txt: str, WIKI_ROOT: str, add, pack) -> list[str]:
     """Typed-relation + claims rules (spec §8). Trả list message CRITICAL (đã add).
 
-    - `broken-relation-target` (CRITICAL): dst của link (typed lẫn default edge
-      `related`) trỏ file không tồn tại — links table có edge gãy (spec §4.2).
-      Strip `#anchor` trước khi check (anchor là section-level, §5.3).
+    - `broken-relation-target` (CRITICAL): dst của TYPED relation (frontmatter +
+      inline) trỏ file không tồn tại — links table có typed edge gãy (§4.2).
+      Plain edge (`related`) là việc của broken-wikilink WARNING (zero change
+      cho wiki không pack). Strip `#anchor` trước khi check (§5.3).
     - `unknown-rel-type` / `relation-target-kind` (CRITICAL): validate_links
       theo langpack — string pass-through (validate_links đã gắn đúng token;
       ruling Task 4: 2 token RIÊNG, không gộp).
@@ -211,9 +212,13 @@ def _check_relations(path: str, txt: str, WIKI_ROOT: str, add, pack) -> list[str
 
     links = graph.extract_links(txt)
 
-    # broken-relation-target — check existence như _check_wikilinks, có thêm
-    # typed edges (graph.extract_links không cho vị trí → không có line number).
+    # broken-relation-target — CHỈ typed relations (frontmatter + inline).
+    # Plain edge (origin='wikilink') đã có broken-wikilink WARNING (kèm line) —
+    # nổ thêm CRITICAL trên cùng edge sẽ đổi exit behavior của wiki không pack
+    # (vi phạm "no-pack wiki ⇒ zero behavior change").
     for link in links:
+        if link.origin == "wikilink":
+            continue
         dst = link.dst.split("#", 1)[0].strip()
         if not dst or _URL_RE.match(dst):
             continue
@@ -341,9 +346,16 @@ def lint(conn, wiki_root=None) -> dict:
     lcfg = get_config(WIKI_ROOT).get("lint", {})
     # Langpack một lần per run: None khi wiki không bật [langpack] →
     # _check_relations bỏ qua validate/fields (zero change cho wiki không pack).
-    # Bật mà pack hỏng → load_langpack fail loud (FileNotFoundError/ValueError)
-    # đúng contract của graph — lint không fail-open thầm lặng.
-    pack = graph.load_langpack(WIKI_ROOT)
+    # Pack hỏng (tên sai / thiếu dir / thiếu PyYAML) KHÔNG được làm sập lint:
+    # bắt lỗi ở entry → 1 finding CRITICAL langpack-config-error, các rule khác
+    # chạy tiếp với pack=None (fail-loud của load_langpack thành fail-VISIBLE ở
+    # lint, không fail-open âm thầm — validate/fields skip có chủ đích).
+    pack = None
+    pack_error: str | None = None
+    try:
+        pack = graph.load_langpack(WIKI_ROOT)
+    except (ValueError, FileNotFoundError, ImportError) as e:
+        pack_error = str(e)
     today = datetime.now().date()
     pages = db.list_pages(conn)
     linked = set()
@@ -354,6 +366,12 @@ def lint(conn, wiki_root=None) -> dict:
 
     def add(path: str, msg: str) -> None:
         findings.setdefault(path, []).append(msg)
+
+    if pack_error:
+        # Pseudo-path = file nguồn lỗi (cùng mẫu add("wiki/pins.yml", ...)).
+        msg = f"langpack-config-error: {pack_error} (CRITICAL)"
+        add(".llm-wiki-base.toml", msg)
+        rel_critical.append(msg)
 
     wiki_pages = [p for p in pages if p["path"].startswith("wiki/")]
 
