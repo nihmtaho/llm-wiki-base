@@ -195,8 +195,9 @@ def _check_relations(path: str, txt: str, WIKI_ROOT: str, add, pack) -> list[str
     - `claim-without-footnote` (CRITICAL): bullet trong `## Claims` không cite
       `[^id]` (§5.3 — mỗi bullet = 1 claim atom kèm provenance).
     - `relation-without-note` (advisory): contrast-with/contradicts không note.
-    - `inline-rel-vs-alias` (advisory): cùng dst nhưng nhiều định nghĩa rel khác
-      nhau — typed vs plain-alias, hoặc 2 typed khác rel (§5.2).
+    - `inline-rel-vs-alias` (advisory): cùng dst có ≥2 typed rel mâu thuẫn,
+      HOẶC typed edge cạnh alias note "nhìn như rel" (note ∈ typed rels của dst ∪
+      CORE ∪ pack vocab). Mention trần / alias thường không đếm (§5.2, §11).
 
     Tất cả qua `add` (channel findings chung): advisory gắn hậu tố "(advisory)"
     (cùng mẫu banned-terms), CRITICAL gắn "(CRITICAL)" + được trả về để lint()
@@ -285,16 +286,35 @@ def _check_relations(path: str, txt: str, WIKI_ROOT: str, add, pack) -> list[str
             add(path, f"relation-without-note: rel {link.rel!r} → {link.dst!r} "
                       f"không có note (advisory)")
 
-    # inline-rel-vs-alias (advisory) — cùng dst, nhiều định nghĩa rel (§5.2):
-    # plain [[dst]] → rel 'related' + typed [[dst|rel:X]] → 2 rel khác nhau.
-    rels_by_dst: dict[str, set[str]] = {}
+    # inline-rel-vs-alias (advisory) — cùng dst, mâu thuẫn định nghĩa rel
+    # (§5.2, §11). SO RỘNG trước đây cộng cả default edge 'related' từ
+    # prose mention → fire trên shape chuẩn (fm covered-in + [[dst]] trần).
+    # Giờ CHỈ 2 nhánh:
+    #   (1) ≥2 typed rel khác nhau cho cùng dst (mâu thuẫn typed thật), hoặc
+    #   (2) có typed edge + alias edge có note "nhìn như rel" (note ∈ typed
+    #       rels của dst ∪ CORE ∪ pack vocabulary). Mention trần (note rỗng)
+    #       và alias thường → KHÔNG đếm — default edge không vào conflict set.
+    # (Note bắt đầu 'rel:' đã bị extract_links parse thành typed — không tới
+    # nhánh này; guard theo vocab là đủ.)
+    typed_by_dst: dict[str, set[str]] = {}
+    alias_by_dst: dict[str, set[str]] = {}
     for link in links:
-        rels_by_dst.setdefault(link.dst, set()).add(link.rel)
-    for dst in sorted(rels_by_dst):
-        rels = rels_by_dst[dst]
-        if len(rels) > 1:
-            add(path, f"inline-rel-vs-alias: {dst!r} có nhiều định nghĩa rel "
-                      f"khác nhau: {', '.join(sorted(rels))} (advisory)")
+        if link.origin in ("frontmatter", "inline"):
+            typed_by_dst.setdefault(link.dst, set()).add(link.rel)
+        elif link.note and link.note.strip():
+            alias_by_dst.setdefault(link.dst, set()).add(link.note.strip())
+    rel_vocab = set(graph.CORE_RELS) | set((pack or {}).get("relations") or {})
+    for dst in sorted(typed_by_dst):
+        typed = typed_by_dst[dst]
+        if len(typed) > 1:
+            add(path, f"inline-rel-vs-alias: {dst!r} có nhiều typed rel mâu "
+                      f"thuẫn: {', '.join(sorted(typed))} (advisory)")
+            continue
+        shaped = alias_by_dst.get(dst, set()) & (typed | rel_vocab)
+        if shaped:
+            add(path, f"inline-rel-vs-alias: {dst!r} có alias trùng tên rel "
+                      f"({', '.join(sorted(shaped))}) cạnh typed rel "
+                      f"{', '.join(sorted(typed))} (advisory)")
 
     return critical
 

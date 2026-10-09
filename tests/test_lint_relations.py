@@ -155,8 +155,13 @@ def test_relation_without_note_contrast(tmp_path, monkeypatch):
 
 
 def test_inline_rel_vs_alias(tmp_path, monkeypatch):
-    """Cùng dst: inline rel:contrast-with + plain alias [[dst|contrast-with]]
-    → 2 định nghĩa rel khác nhau → inline-rel-vs-alias (advisory)."""
+    """Cùng dst: inline `rel:contrast-with` + alias [[dst|contrast-with]] —
+    alias note TRÙNG tên typed rel (nhìn như rel, spec §11) → conflict set có
+    typed edge + rel-shaped alias → inline-rel-vs-alias (advisory).
+
+    Mention trần/alias thường KHÔNG đếm → xem
+    test_canonical_frontmatter_prose_no_finding.
+    """
     db, lint, conn = _load_lint(tmp_path, monkeypatch)
     _target(tmp_path, "wiki/tech/concept/x.md")
     path = _page(db, conn, tmp_path, "wiki/tech/concept/a.md",
@@ -168,6 +173,28 @@ def test_inline_rel_vs_alias(tmp_path, monkeypatch):
     alias_msgs = [m for m in msgs if "inline-rel-vs-alias" in m]
     assert len(alias_msgs) == 1
     assert "(advisory)" in alias_msgs[0]
+    assert result["critical_count"] == 0
+
+
+def test_canonical_frontmatter_prose_no_finding(tmp_path, monkeypatch):
+    """Shape chuẩn spec §7 (ingest synthesis sẽ viết): fm covered-in → source
+    page + mention trần trong prose → default edge 'related' KHÔNG tham gia
+    conflict set → không inline-rel-vs-alias. Alias thường (không phải tên
+    rel) cũng không đếm. Zero change: critical_count == 0 (exit 0)."""
+    db, lint, conn = _load_lint(tmp_path, monkeypatch)
+    _target(tmp_path, "wiki/languages/source/shinkanzen3.md")
+    _target(tmp_path, "wiki/languages/source/minna1.md")
+    path = _page(db, conn, tmp_path, "wiki/languages/concept/ba.md",
+        "---\ntitle: ba\ndomain: languages\nkind: concept\nrelations:\n"
+        "  - rel: covered-in\n"
+        "    target: wiki/languages/source/shinkanzen3.md\n"
+        "  - rel: example-of\n"
+        "    target: wiki/languages/source/minna1.md\n"
+        "---\n\n# ba\n\n"
+        "Nguồn: [[wiki/languages/source/shinkanzen3.md]] (bài 6).\n"
+        "Xem thêm [[wiki/languages/source/minna1.md|Minna]] (alias thường).\n")
+    result = lint.lint(conn, wiki_root=str(tmp_path))
+    assert not any("inline-rel-vs-alias" in m for m in _msgs(result))
     assert result["critical_count"] == 0
 
 
